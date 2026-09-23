@@ -12,7 +12,7 @@ detetar uma mensagem fora de ordem.
 
 ## CA2 — Decisões da API de datagramas
 
-O servidor cria um `DatagramSocket` no porto fixo `9876`, porque esse é o
+O servidor cria um `DatagramSocket` no porto fixo `6789`, porque esse é o
 ponto conhecido onde fica à espera de pedidos. O cliente cria o socket sem
 indicar porto; o sistema atribui-lhe um porto disponível, que identifica
 temporariamente aquele cliente para poder receber a resposta.

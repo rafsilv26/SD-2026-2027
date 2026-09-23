@@ -5,7 +5,7 @@ import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
 
 public class UDPServer {
-    private static final int SERVER_PORT = 9876;
+    private static final int SERVER_PORT = 6789;
 
     public static void main(String[] args) {
         int lastAcceptedSequence = 0;

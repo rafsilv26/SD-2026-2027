@@ -9,7 +9,7 @@ import java.util.Scanner;
 
 public class UDPClient {
     private static final String SERVER_HOST = "localhost";
-    private static final int SERVER_PORT = 9876;
+    private static final int SERVER_PORT = 6789;
 
     public static void main(String[] args) {
         int contador = 0;
