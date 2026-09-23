@@ -1,1 +1,4 @@
-.clawdea/REPO_STATE.md
+.clawdea/REPO_STATE.md,
+bin/,
+*.class ,
+.vscode/,
