@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hold them until the gap closes</title>
+<!-- Standalone: no external files required. The Google Fonts request below is a
+     progressive enhancement loaded without blocking rendering; offline, or on a
+     machine with no network, the page falls back to the system fonts declared in
+     --sans / --serif and works exactly the same.
+     NOTE: the first stylesheet block is an inlined copy of ../styles/widget.css,
+     kept byte-identical to the copy in ../E1-UDP01/ilustração.html. If that
+     shared file changes, re-inline it in both. Widget-specific rules live in the
+     second block. -->
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap"
+      rel="stylesheet" media="print" onload="this.media='all'">
+<style>
+/* Shared by every widget in widgets/. Keeping this out of the individual files
+   is what stops twenty widgets from drifting into twenty visual identities.
+   Token meanings are documented in STYLE.md. */
+
+:root{
+  --ink:#0E1A21;
+  --ink-2:#14242D;
+  --rule:#27404C;
+  --type:#C6D6DC;
+  --type-dim:#7A96A3;
+  --minority:#D9943A;
+  --majority:#3FA894;
+  --danger:#C04A3F;
+  --sans:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;
+  --serif:"Source Serif 4",Georgia,serif;
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  padding:1.25rem;
+  background:var(--ink);
+  color:var(--type);
+  font-family:var(--serif);
+  font-size:18px;          /* projector floor — see STYLE.md */
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+
+h1{
+  font-family:var(--sans);
+  font-weight:500;
+  font-size:1.15rem;
+  letter-spacing:-.02em;
+  margin:0 0 1rem;
+}
+
+/* Controls ---------------------------------------------------------------- */
+
+.controls{
+  display:flex;
+  gap:2rem;
+  flex-wrap:wrap;
+  align-items:center;
+  padding-bottom:1rem;
+  border-bottom:1px solid var(--rule);
+  margin-bottom:1rem;
+}
+
+.control{display:flex;flex-direction:column;gap:.3rem;min-width:190px}
+
+.control label{
+  font-family:var(--sans);
+  font-size:.72rem;
+  color:var(--type-dim);
+}
+
+.control output{
+  font-family:var(--sans);
+  font-size:.95rem;
+  color:var(--type);
+}
+
+input[type=range]{
+  accent-color:var(--majority);
+  width:100%;
+  background:transparent;
+}
+
+/* Readouts ---------------------------------------------------------------- */
+
+.readout{
+  display:flex;
+  gap:1rem;
+  flex-wrap:wrap;
+  margin-top:1rem;
+}
+
+.card{
+  flex:1 1 200px;
+  border-top:2px solid var(--rule);
+  padding-top:.6rem;
+}
+.card.min{border-top-color:var(--minority)}
+.card.maj{border-top-color:var(--majority)}
+
+.card h2{
+  font-family:var(--sans);
+  font-weight:500;
+  font-size:.8rem;
+  margin:0 0 .25rem;
+  color:var(--type-dim);
+}
+
+.card .verdict{font-family:var(--sans);font-size:1rem}
+.verdict.commits{color:var(--majority)}
+.verdict.stalls{color:var(--minority)}
+
+.takeaway{
+  margin-top:1.25rem;
+  border-left:2px solid var(--rule);
+  padding-left:1rem;
+  color:var(--type-dim);
+  font-size:.92rem;
+  max-width:62ch;
+}
+.takeaway strong{color:var(--type);font-weight:600}
+
+/* Diagram ----------------------------------------------------------------- */
+
+svg{width:100%;height:auto;display:block;overflow:visible}
+
+.node circle{fill:var(--ink-2);stroke:var(--rule);stroke-width:1.5;transition:stroke .35s,fill .35s}
+.node text{font-family:var(--sans);font-size:15px;font-weight:700;fill:var(--type);
+           text-anchor:middle;dominant-baseline:central}
+.node.min circle{stroke:var(--minority)}
+.node.maj circle{stroke:var(--majority)}
+.node.shared circle{fill:var(--majority);stroke:var(--majority)}
+.node.shared text{fill:var(--ink)}
+
+.cut{stroke:var(--danger);stroke-width:2;stroke-dasharray:7 9}
+.cut-label{font-family:var(--sans);font-size:11px;fill:var(--danger);text-anchor:middle}
+
+/* Datagram tray + transcript ---------------------------------------------- */
+
+.tray{display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:1rem}
+
+.dgram{
+  font-family:var(--sans);
+  font-size:1rem;
+  color:var(--type);
+  background:var(--ink-2);
+  border:1.5px solid var(--rule);
+  border-radius:2px;
+  padding:.5rem .9rem;
+  cursor:pointer;
+  transition:border-color .25s,color .25s;
+}
+.dgram:hover{border-color:var(--type-dim)}
+.dgram.done{border-color:var(--majority);color:var(--majority)}
+.dgram.next{border-color:var(--minority);color:var(--minority)}
+.dgram.reset{color:var(--type-dim);margin-left:auto}
+
+.log{
+  list-style:none;
+  margin:1rem 0 0;
+  padding:.6rem 0 0;
+  border-top:1px solid var(--rule);
+  font-family:var(--sans);
+  font-size:.88rem;
+  height:150px;
+  overflow-y:auto;
+}
+.log li{display:flex;gap:.7rem;padding:.1rem 0}
+.log .dir{color:var(--type-dim);flex:none;width:1.1rem}
+.log .accept{color:var(--majority)}
+.log .refuse{color:var(--minority)}
+
+:focus-visible{outline:2px solid var(--minority);outline-offset:3px}
+
+@media (prefers-reduced-motion:reduce){
+  *{transition-duration:.01ms!important;animation-duration:.01ms!important}
+}
+</style>
+<style>
+/* This widget only ---------------------------------------------------------
+   Two lanes — what the application has been handed, and what the server is
+   merely holding — separated by the gap that keeps them apart. */
+
+.dgram.held{border-color:var(--minority);color:var(--minority);opacity:.55}
+.dgram.far{border-style:dashed}
+.dgram[disabled]{opacity:.4;cursor:default}
+.dgram[disabled]:hover{border-color:var(--rule)}
+.dgram.held[disabled]:hover,.dgram.done[disabled]:hover{border-color:inherit}
+
+.lanes{
+  border-top:1px solid var(--rule);
+  border-bottom:1px solid var(--rule);
+  padding:.35rem 0;
+}
+
+.lane{display:flex;gap:.75rem;align-items:flex-start;padding:.5rem 0}
+.lane-tag{
+  font-family:var(--sans);
+  font-size:.72rem;
+  color:var(--type-dim);
+  flex:none;
+  width:8rem;
+  text-align:right;
+  padding-top:.55rem;
+}
+.lane-tag b{display:block;font-weight:500;color:var(--type)}
+
+.chips{
+  display:flex;
+  gap:.5rem;
+  flex-wrap:wrap;
+  align-items:center;
+  flex:1 1 auto;
+  min-height:2.4rem;
+  min-width:0;
+}
+
+.chip{
+  font-family:var(--sans);
+  font-size:.95rem;
+  background:var(--ink-2);
+  border:1.5px solid var(--rule);
+  border-radius:2px;
+  padding:.35rem .7rem;
+  white-space:nowrap;
+}
+.chip .pl{color:var(--type-dim);font-size:.82rem;margin-left:.45rem}
+.lane.deliv .chip{border-color:var(--majority);color:var(--majority)}
+.lane.buf   .chip{border-color:var(--minority);color:var(--minority)}
+.chip.enter{animation:land .34s cubic-bezier(.2,.8,.3,1)}
+.chip.promote{animation:promote .3s ease-in forwards}
+
+.placeholder{font-family:var(--sans);font-size:.85rem;color:var(--type-dim)}
+
+.gap{
+  display:flex;
+  align-items:center;
+  gap:.7rem;
+  margin-left:8.75rem;
+  font-family:var(--sans);
+  font-size:.75rem;
+  color:var(--type-dim);
+}
+.gap::before,.gap::after{content:"";flex:1;border-top:1px dashed var(--rule)}
+.gap.open{color:var(--minority)}
+.gap.open::before,.gap.open::after{border-top-color:var(--minority)}
+.gap.open span{animation:breathe 1.8s ease-in-out infinite}
+.gap.shut{color:var(--majority)}
+.gap.shut::before,.gap.shut::after{border-top-color:var(--majority)}
+
+.log .hold{color:var(--minority)}
+.log .dup{color:var(--type-dim)}
+
+@keyframes land{
+  from{opacity:0;transform:translateY(14px) scale(.92)}
+  to  {opacity:1;transform:none}
+}
+@keyframes promote{
+  from{opacity:1;transform:none}
+  to  {opacity:0;transform:translateY(-16px) scale(1.06)}
+}
+@keyframes breathe{
+  0%,100%{opacity:1}
+  50%    {opacity:.45}
+}
+
+@media (max-width:640px){
+  .lane{flex-direction:column;gap:.15rem}
+  .lane-tag{width:auto;text-align:left;padding-top:0}
+  .lane-tag b{display:inline;margin-right:.4rem}
+  .gap{margin-left:0}
+}
+</style>
+</head>
+<body>
+
+<h1>Hold them until the gap closes</h1>
+
+<div class="tray" id="tray" role="group" aria-label="Datagrams the client can send"></div>
+
+<div class="lanes">
+  <div class="lane deliv">
+    <div class="lane-tag"><b>delivered</b>reception list</div>
+    <div class="chips" id="lane-deliv" aria-live="polite" aria-label="Messages delivered to the application"></div>
+  </div>
+  <div class="gap" id="gap"><span></span></div>
+  <div class="lane buf">
+    <div class="lane-tag"><b>received</b>held, not delivered</div>
+    <div class="chips" id="lane-buf" aria-live="polite" aria-label="Messages held in the temporary buffer"></div>
+  </div>
+</div>
+
+<div class="readout">
+  <div class="card maj">
+    <h2>Server state</h2>
+    <div class="verdict commits" id="verdict-l"></div>
+  </div>
+  <div class="card min">
+    <h2>Temporary buffer</h2>
+    <div class="verdict" id="verdict-buf"></div>
+  </div>
+  <div class="card">
+    <h2>Last reply</h2>
+    <div class="verdict" id="verdict-reply"></div>
+  </div>
+  <div class="card">
+    <h2>Resends avoided</h2>
+    <div class="verdict" id="verdict-saved"></div>
+  </div>
+</div>
+
+<ul class="log" id="log" aria-live="polite" aria-label="Transcript"></ul>
+
+<p class="takeaway" id="takeaway"></p>
+
+<script>
+// ---------------------------------------------------------------------------
+// CONFIG — every number and string a revision might touch lives here.
+// Rendering and interaction logic below should rarely need editing.
+// ---------------------------------------------------------------------------
+const CONFIG = {
+  // One entry per datagram the client can send, in sequence-number order.
+  payloads: ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"],
+  // A sequence number far outside the window, to show what "hold it" costs.
+  far:    { n: 1000000, payload: "omega" },
+  startL: 0,
+  step:   340,            // ms between two deliveries of one cascade
+  wire:   { send: (n, p) => `${n},${p}` },
+  reply:  {
+    accept: l => `ok,${l}`,
+    refuse: l => `waitingfor,${l + 1}`,
+    dup:    n => `dup,${n}`
+  },
+  copy: {
+    state:    l => `L = ${l}`,
+    buffer:   ks => ks.length ? `{${ks.join(", ")}}` : "empty",
+    saved:    n => `${n}`,
+    none:     "—",
+    reset:    "Reset server",
+    nothing:  "nothing here yet",
+    gapOpen:  l => `gap — waiting for ${l + 1}`,
+    gapShut:  l => `no gap — next is ${l + 1}`,
+    hold:     n => `hold ${n}`,
+    give:     (n, p) => `deliver ${n},${p}`,
+    // Takeaways, most specific first.
+    stuck:    (l, n) => `L = ${l}, and ${n} is held. Nothing releases it: the buffer keeps it forever, and every later datagram joins it.`,
+    holding:  (l, ks) => `L = ${l}, holding {${ks.join(", ")}}. Each held datagram is one the UDP01 server would have thrown away — ${ks.length} resend${ks.length > 1 ? "s" : ""} avoided so far.`,
+    waiting:  l => `L = ${l}. The next datagram to deliver is ${l + 1}; anything else is received, then held.`,
+    complete: l => `L = ${l}. Every message was delivered in order, and the buffer is empty again.`
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Logic
+// ---------------------------------------------------------------------------
+const $ = id => document.getElementById(id);
+const tray = $("tray"), log = $("log"), laneDeliv = $("lane-deliv"), laneBuf = $("lane-buf");
+
+const reduced = matchMedia("(prefers-reduced-motion:reduce)").matches;
+const step    = reduced ? 0 : CONFIG.step;
+const sleep   = ms => new Promise(r => setTimeout(r, ms));
+
+let L, buffer, sent, saved, busy;
+
+function reset() {
+  L = CONFIG.startL;
+  buffer = new Map();     // n -> payload. Received, not delivered.
+  sent = 0;
+  saved = 0;
+  busy = false;
+  log.innerHTML = "";
+  laneDeliv.innerHTML = "";
+  laneBuf.innerHTML = "";
+  render();
+}
+
+// The client. One click, one datagram, no waiting for anyone.
+async function send(n, payload) {
+  if (busy) return;
+  sent++;
+  append("→", CONFIG.wire.send(n, payload), "");
+
+  if (n <= L || buffer.has(n)) {           // duplicate: never crash, never corrupt
+    append("←", CONFIG.reply.dup(n), "dup");
+    return render(CONFIG.reply.dup(n));
+  }
+
+  if (n !== L + 1) {                       // out of order: received, not delivered
+    buffer.set(n, payload);
+    saved++;
+    append("⇩", CONFIG.copy.hold(n), "hold");
+    addChip(laneBuf, n, payload);
+    append("←", CONFIG.reply.refuse(L), "refuse");
+    return render(CONFIG.reply.refuse(L));
+  }
+
+  await cascade(n, payload);               // in order: deliver it, then the chain
+}
+
+// What processDeliveredMessages does, one delivery at a time so you can watch
+// the chain: the gap closes, and everything queued behind it follows.
+async function cascade(n, payload) {
+  busy = true;
+  deliver(n, payload);
+  render();
+
+  while (buffer.has(L + 1)) {
+    await sleep(step);
+    const k = L + 1, p = buffer.get(k);
+    const chip = laneBuf.querySelector(`[data-n="${k}"]`);
+    if (chip) chip.classList.add("promote");
+    await sleep(step * 0.45);
+    buffer.delete(k);
+    if (chip) chip.remove();
+    deliver(k, p);
+    render();
+  }
+
+  busy = false;
+  append("←", CONFIG.reply.accept(L), "accept");   // the LAST delivered, not n
+  render(CONFIG.reply.accept(L));
+}
+
+function deliver(n, payload) {
+  L = n;
+  append("↑", CONFIG.copy.give(n, payload), "accept");
+  addChip(laneDeliv, n, payload);
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+function addChip(lane, n, payload) {
+  const chip = document.createElement("span");
+  chip.className = "chip enter";
+  chip.dataset.n = n;
+  chip.innerHTML = `<span class="seq"></span><span class="pl"></span>`;
+  chip.firstChild.textContent = n;
+  chip.lastChild.textContent = payload;
+
+  // Held messages are shown in sequence order — that is the whole point of
+  // holding them. Delivered ones are already in order by construction.
+  const after = [...lane.children].find(c => +c.dataset.n > n);
+  lane.insertBefore(chip, after || null);
+}
+
+function append(dir, text, kind) {
+  const li = document.createElement("li");
+  li.innerHTML = `<span class="dir">${dir}</span><span class="${kind}"></span>`;
+  li.lastChild.textContent = text;
+  log.appendChild(li);
+  log.scrollTop = log.scrollHeight;
+}
+
+function render(lastReply) {
+  const keys = [...buffer.keys()].sort((a, b) => a - b);
+  const all  = [...CONFIG.payloads.map((p, i) => ({ n: i + 1, p })), CONFIG.far];
+
+  tray.innerHTML = "";
+  all.forEach(({ n, p, payload }) => {
+    const text = CONFIG.wire.send(n, p || payload);
+    const b = document.createElement("button");
+    b.className = "dgram" + (n === CONFIG.far.n ? " far" : "")
+                + (n <= L ? " done" : buffer.has(n) ? " held" : n === L + 1 ? " next" : "");
+    b.textContent = text;
+    b.disabled = busy;
+    b.addEventListener("click", () => send(n, p || payload));
+    tray.appendChild(b);
+  });
+
+  const r = document.createElement("button");
+  r.className = "dgram reset";
+  r.textContent = CONFIG.copy.reset;
+  r.disabled = busy;
+  r.addEventListener("click", reset);
+  tray.appendChild(r);
+
+  placeholder(laneDeliv);
+  placeholder(laneBuf);
+
+  const gap = $("gap");
+  gap.className = "gap " + (keys.length ? "open" : "shut");
+  gap.firstChild.textContent = keys.length ? CONFIG.copy.gapOpen(L) : CONFIG.copy.gapShut(L);
+
+  $("verdict-l").textContent   = CONFIG.copy.state(L);
+  $("verdict-buf").textContent = CONFIG.copy.buffer(keys);
+  $("verdict-buf").className   = "verdict " + (keys.length ? "stalls" : "");
+  $("verdict-saved").textContent = CONFIG.copy.saved(saved);
+
+  const reply = $("verdict-reply");
+  reply.textContent = lastReply || CONFIG.copy.none;
+  reply.className = "verdict " + (!lastReply ? "" : lastReply.startsWith("ok") ? "commits"
+                                : lastReply.startsWith("dup") ? "" : "stalls");
+
+  $("takeaway").textContent =
+      buffer.has(CONFIG.far.n)          ? CONFIG.copy.stuck(L, CONFIG.far.n)
+    : keys.length                       ? CONFIG.copy.holding(L, keys)
+    : L === CONFIG.payloads.length      ? CONFIG.copy.complete(L)
+    :                                     CONFIG.copy.waiting(L);
+}
+
+function placeholder(lane) {
+  const empty = !lane.querySelector(".chip");
+  const mark  = lane.querySelector(".placeholder");
+  if (empty && !mark) {
+    const s = document.createElement("span");
+    s.className = "placeholder";
+    s.textContent = CONFIG.copy.nothing;
+    lane.appendChild(s);
+  } else if (!empty && mark) {
+    mark.remove();
+  }
+}
+
+reset();
+</script>
+</body>
+</html>
