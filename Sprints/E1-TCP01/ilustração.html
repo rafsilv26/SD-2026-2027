@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TCP01 · One thread per connection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#EDF0F3; --surface:#FFFFFF; --ink:#18212B; --muted:#5B6776; --line:#CBD3DC;
+  --hs:#6F8FB3; --wait:#D99A00; --pend:#C0392B; --run:#17806F; --idle:#A9B3BE; --code-bg:#F4F6F8; --hl:#FFEDB0;
+  --c1:#2F6FDB; --c2:#7A4FD0; --c3:#2E9B57; --c4:#D46A1F; --c5:#C23E86;
+  --sans:"Atkinson Hyperlegible", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono:"JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#141920; --surface:#1C232C; --ink:#E6EBF0; --muted:#9AA7B5; --line:#2F3946;
+    --hs:#7FA3CC; --wait:#E5AD2A; --pend:#E0655A; --run:#3BB19E; --idle:#56626F; --code-bg:#161C23; --hl:#433817;
+    --c1:#6A9BF0; --c2:#A383EA; --c3:#55C07E; --c4:#EE9150; --c5:#E36BAE;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141920; --surface:#1C232C; --ink:#E6EBF0; --muted:#9AA7B5; --line:#2F3946;
+  --hs:#7FA3CC; --wait:#E5AD2A; --pend:#E0655A; --run:#3BB19E; --idle:#56626F; --code-bg:#161C23; --hl:#433817;
+  --c1:#6A9BF0; --c2:#A383EA; --c3:#55C07E; --c4:#EE9150; --c5:#E36BAE;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.5}
+.wrap{max-width:1240px;margin:0 auto;padding:28px 20px 60px}
+header h1{font-size:clamp(28px,4.2vw,44px);line-height:1.1;margin:0 0 10px;letter-spacing:-.01em}
+header p{max-width:72ch;margin:0 0 6px;color:var(--muted)}
+code,.mono{font-family:var(--mono);font-size:.88em}
+
+/* controls */
+.controls{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);
+  display:flex;flex-wrap:wrap;gap:12px 22px;align-items:center;padding:14px 0;margin:18px 0 8px;border-bottom:1px solid var(--line)}
+.btns{display:flex;gap:8px}
+.controls button{font:inherit;font-weight:700;border:1.5px solid var(--ink);background:transparent;color:var(--ink);
+  padding:8px 14px;border-radius:6px;cursor:pointer}
+.controls button.primary{background:var(--ink);color:var(--bg);min-width:130px}
+.controls button:disabled{opacity:.35;cursor:default}
+.controls button:focus-visible,.controls input:focus-visible{outline:3px solid var(--c1);outline-offset:2px}
+.stepinfo{font-size:14px;color:var(--muted)}
+.stepinfo b{font-family:var(--mono);color:var(--ink);font-size:18px}
+.ctl{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted)}
+.ctl strong{color:var(--ink);font-family:var(--mono);font-size:14px;min-width:4.5ch;display:inline-block}
+.ctl input[type=range]{accent-color:var(--ink)}
+.spacer{flex:1}
+.hint{font-size:12.5px;color:var(--muted);width:100%;margin-top:-4px}
+
+/* panels */
+.panels{display:grid;grid-template-columns:1fr;gap:20px;margin-top:18px}
+@media (min-width:1000px){.panels{grid-template-columns:1fr 1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:20px;min-width:0;display:flex;flex-direction:column;gap:16px}
+.panel-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.panel-head h2{margin:0;font-size:21px;line-height:1.2}
+.panel-head p{margin:4px 0 0;color:var(--muted);font-size:14px}
+.tcount{text-align:right;flex-shrink:0}
+.tcount b{display:block;font-family:var(--mono);font-size:34px;line-height:1}
+.tcount span{font-size:12px;color:var(--muted)}
+
+.now{border-left:4px solid var(--ink);background:var(--code-bg);padding:10px 12px;border-radius:0 6px 6px 0;min-height:64px}
+.now .lbl{font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:2px}
+.now ul{margin:0;padding-left:18px}
+.now li{margin:2px 0;font-size:14.5px}
+.now li::marker{color:var(--cc,var(--ink))}
+.now .quiet{color:var(--muted);font-size:14px}
+
+pre.code{margin:0;background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:10px 0;overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.65}
+pre.code span{display:block;padding:0 12px;border-left:3px solid transparent;white-space:pre}
+pre.code span.on{background:var(--hl);border-left-color:var(--ink)}
+pre.code .cm{color:var(--muted);font-style:normal}
+
+.scene{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:14px}
+@media (max-width:560px){.scene{grid-template-columns:1fr}}
+.col-title{font-size:13px;font-weight:700;color:var(--muted);margin:0 0 8px}
+.client{border:1px solid var(--line);border-left:5px solid var(--cc);border-radius:6px;padding:7px 10px;margin-bottom:8px;font-size:13.5px}
+.client .nm{font-weight:700;display:flex;justify-content:space-between;gap:6px}
+.client .st{color:var(--muted);line-height:1.35;margin-top:2px}
+.client.off{opacity:.45}
+.client.pend .st{color:var(--pend)}
+.client.done .st{color:var(--run)}
+.pill{font-family:var(--mono);font-size:11px;font-weight:600;padding:1px 6px;border-radius:4px;white-space:nowrap;align-self:flex-start}
+.pill.hs{background:color-mix(in srgb,var(--hs) 20%,transparent);color:color-mix(in srgb,var(--hs) 70%,var(--ink))}
+.pill.pend{background:color-mix(in srgb,var(--pend) 16%,transparent);color:var(--pend)}
+.pill.wait{background:color-mix(in srgb,var(--wait) 20%,transparent);color:color-mix(in srgb,var(--wait) 70%,var(--ink))}
+.pill.run,.pill.done{background:color-mix(in srgb,var(--run) 16%,transparent);color:var(--run)}
+.pill.off{background:var(--code-bg);color:var(--muted)}
+
+.mainthread{border:2px solid var(--ink);border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:13.5px}
+.mainthread .nm{font-weight:700}
+.mainthread .st{font-family:var(--mono);font-size:12px;margin-top:3px}
+.mainthread.busy{border-color:var(--cc)}
+
+.conn{border:1.5px solid var(--cc);border-radius:6px;margin-bottom:8px;font-size:12.5px;transition:opacity .4s}
+.conn .top{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:5px 8px;background:color-mix(in srgb,var(--cc) 12%,transparent);font-weight:700}
+.conn .top small{font-family:var(--mono);font-weight:400;color:var(--muted)}
+.conn dl{margin:0;padding:5px 8px;display:grid;grid-template-columns:auto 1fr;gap:1px 10px;font-family:var(--mono);font-size:11.5px}
+.conn dt{color:var(--muted)} .conn dd{margin:0;overflow-wrap:anywhere}
+.conn .state{padding:4px 8px 6px;font-family:var(--mono);font-size:11.5px;border-top:1px dashed var(--line)}
+.conn.dead{opacity:.42}
+.conn.new{animation:pop .45s ease-out}
+@keyframes pop{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.conn.new{animation:none}}
+.empty{font-size:13px;color:var(--muted);border:1px dashed var(--line);border-radius:6px;padding:10px}
+
+.backlog{border:1.5px dashed var(--pend);border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:13px}
+.backlog .ttl{font-weight:700;color:var(--pend)}
+.backlog .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;min-height:26px}
+.chip{border:1.5px solid var(--cc);border-radius:14px;padding:2px 10px;font-weight:700;font-size:12.5px}
+.chip.sent::after{content:" · request already sent";font-weight:400;color:var(--muted)}
+.locals{border:1px solid var(--line);border-radius:6px;padding:7px 10px;font-size:12.5px}
+.locals .ttl{font-weight:700;margin-bottom:3px}
+.locals .mono{color:var(--muted);font-size:11.5px}
+
+/* timeline */
+.tl-wrap h3{font-size:14px;margin:0 0 6px}
+.tl{display:grid;grid-template-columns:92px minmax(0,1fr);column-gap:8px}
+.labels .row,.tracks .row{height:30px;display:flex;align-items:center}
+.labels .row{font-size:12.5px;font-weight:700;line-height:1.1;flex-direction:column;align-items:flex-start;justify-content:center}
+.labels .row small{font-family:var(--mono);font-weight:400;color:var(--muted);font-size:10.5px}
+.labels .row .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--cc);margin-right:5px}
+.tracks{position:relative}
+.tracks .row{position:relative;border-bottom:1px solid var(--line)}
+.seg{position:absolute;top:7px;height:16px;border-radius:3px}
+.seg.idle{background:repeating-linear-gradient(135deg,transparent 0 4px,color-mix(in srgb,var(--idle) 45%,transparent) 4px 6px);border-radius:0}
+.seg.tick{background:var(--cc);top:4px;height:22px;border-radius:2px}
+.seg.cbusy{background:var(--cc)}
+.seg.cwait{background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--cc) 25%,transparent) 0 4px,var(--cc) 4px 6px)}
+.seg.hs{background:var(--hs);border-radius:3px 0 0 3px}
+.seg.pend{background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--pend) 20%,transparent) 0 4px,var(--pend) 4px 6px)}
+.seg.wait{background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--wait) 20%,transparent) 0 4px,var(--wait) 4px 6px)}
+.seg.run{background:var(--run)}
+.mk{position:absolute;top:0;font-size:10px;transform:translateX(-50%);line-height:1;color:var(--ink)}
+.mk.done{top:auto;bottom:1px;color:var(--run);font-weight:700;font-size:12px;transform:translateX(2px)}
+.axis{position:relative;height:18px;font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+.axis span{position:absolute;transform:translateX(-50%);top:3px}
+.cursor{position:absolute;top:0;bottom:18px;width:2px;background:var(--ink);pointer-events:none}
+.cursor::before{content:"";position:absolute;top:-4px;left:-4px;border:5px solid transparent;border-top-color:var(--ink)}
+
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--muted);margin:14px 0 0}
+.legend i{display:inline-block;width:22px;height:11px;border-radius:2px;vertical-align:-1px;margin-right:6px}
+
+section.below{margin-top:34px;display:grid;grid-template-columns:1fr;gap:28px}
+@media (min-width:1000px){section.below{grid-template-columns:1.05fr .95fr}}
+.below h2{font-size:22px;margin:0 0 10px}
+.below p{max-width:68ch;margin:0 0 12px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px;background:var(--surface);border:1px solid var(--line);border-radius:8px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line)}
+th{font-size:13px;color:var(--muted);font-weight:700}
+td.num{font-family:var(--mono);text-align:right}
+th.num{text-align:right}
+td.worse{color:var(--pend);font-weight:600}
+.insight{background:var(--surface);border-left:4px solid var(--ink);padding:12px 14px;border-radius:0 8px 8px 0;margin-top:14px}
+.notes p{font-size:15px}
+.notes h3{font-size:16px;margin:18px 0 4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>One thread per connection</h1>
+  <p>The <b>TCP01</b> server takes clients in a <code>while (true)</code> loop around <code>accept()</code>. On the left, every accepted connection gets its own <code>Connection</code> object, holding its socket and streams and running on a separate thread. On the right, the same server without <code>Connection</code>: the request is handled inside the loop itself, and the next clients are left pending.</p>
+  <p>Client 1 takes a while to send its request (as in the <b>CA2</b> question). The other clients send right after connecting. Step through the sequence one moment at a time.</p>
+</header>
+
+<div class="controls" role="group" aria-label="Simulation controls">
+  <div class="btns">
+    <button id="prev" type="button">Previous</button>
+    <button id="next" class="primary" type="button">Next step</button>
+    <button id="reset" type="button">Restart</button>
+  </div>
+  <span class="stepinfo" aria-live="polite">Step <b id="stepn">0</b> of <span id="stepmax">0</span> &nbsp;·&nbsp; t = <b id="clock">0.0 s</b></span>
+  <span class="spacer"></span>
+  <label class="ctl">Clients <input id="nclients" type="range" min="2" max="5" step="1" value="3"><strong id="nval">3</strong></label>
+  <label class="ctl">Client 1 delay <input id="delay" type="range" min="0" max="10" step="0.5" value="6"><strong id="dval">6.0 s</strong></label>
+  <span class="hint">Keyboard: → or Space for the next step, ← for the previous one.</span>
+</div>
+
+<div class="panels">
+  <article class="panel" id="pA">
+    <div class="panel-head">
+      <div><h2>With threads</h2><p><code>Connection extends Thread</code>: <code>main</code> goes straight back to <code>accept()</code>.</p></div>
+      <div class="tcount"><b id="tA">1</b><span>live threads</span></div>
+    </div>
+    <div class="now" id="nowA"></div>
+    <pre class="code" id="codeA"></pre>
+    <div class="scene">
+      <div><p class="col-title">Clients (tcp01-cliente)</p><div id="clientsA"></div></div>
+      <div><p class="col-title">Server (tcp01-servidor)</p><div id="serverA"></div></div>
+    </div>
+    <div class="tl-wrap"><h3>Timeline</h3><div class="tl" id="tlA"></div></div>
+  </article>
+
+  <article class="panel" id="pB">
+    <div class="panel-head">
+      <div><h2>Without threads</h2><p>The request is processed inside the <code>accept()</code> loop.</p></div>
+      <div class="tcount"><b id="tB">1</b><span>live thread</span></div>
+    </div>
+    <div class="now" id="nowB"></div>
+    <pre class="code" id="codeB"></pre>
+    <div class="scene">
+      <div><p class="col-title">Clients (tcp01-cliente)</p><div id="clientsB"></div></div>
+      <div><p class="col-title">Server (tcp01-servidor)</p><div id="serverB"></div></div>
+    </div>
+    <div class="tl-wrap"><h3>Timeline</h3><div class="tl" id="tlB"></div></div>
+  </article>
+</div>
+
+<div class="legend" aria-label="Legend">
+  <span><i style="background:repeating-linear-gradient(135deg,transparent 0 4px,var(--idle) 4px 6px)"></i><code>main</code> blocked in <code>accept()</code></span>
+  <span><i style="background:var(--hs)"></i>connection establishment (TCP handshake)</span>
+  <span><i style="background:repeating-linear-gradient(135deg,transparent 0 4px,var(--pend) 4px 6px)"></i>connection pending in the queue, not yet accepted</span>
+  <span><i style="background:repeating-linear-gradient(135deg,transparent 0 4px,var(--wait) 4px 6px)"></i>server blocked in <code>readUTF()</code> waiting for the client</span>
+  <span><i style="background:var(--run)"></i>reply <code>writeUTF()</code> and <code>close()</code></span>
+  <span>▼ client called <code>writeUTF()</code> &nbsp; ✓ client received the reply</span>
+</div>
+
+<section class="below">
+  <div>
+    <h2>How long each client waited</h2>
+    <div class="tbl"><table id="summary"></table></div>
+    <div class="insight" id="insight"></div>
+  </div>
+  <div class="notes">
+    <h2>What the illustration shows</h2>
+    <h3>Establishing the connection</h3>
+    <p><code>new Socket("localhost", 7896)</code> on the client triggers the TCP three-way handshake (SYN, SYN-ACK, ACK). The operating system does this on its own: the server's <code>accept()</code> takes no part in it. That is why the handshake takes the same time in both scenarios, and why a connection can be fully established while nobody is accepting it yet.</p>
+    <h3>One Connection object per request</h3>
+    <p>Each <code>new Connection(clientSocket)</code> creates a new object that keeps that client's <code>Socket</code> and its two streams (<code>in</code> and <code>out</code>). Since each thread has its own object, requests share no state. The constructor still runs on the <code>main</code> thread; only <code>this.start()</code> creates the new thread, which executes <code>run()</code>. If <code>run()</code> were called directly, the code would run on <code>main</code> and behave like the right-hand panel.</p>
+    <h3>Why the request is pending rather than refused</h3>
+    <p>Once established, the connection sits in the <code>ServerSocket</code> queue (the <i>backlog</i>) until someone calls <code>accept()</code>. The client's <code>new Socket(...)</code> returns, and so does its <code>writeUTF()</code>, because the bytes land in the server's buffer. The client then blocks in <code>readUTF()</code> until <code>main</code> finishes the previous request and picks up the connection.</p>
+    <h3>The price of threads</h3>
+    <p>With threads, the number of live threads follows the number of connected clients and drops back to 1 once they all finish. Each thread costs memory and scheduling time, which is the limitation raised in <b>CA5</b> for ten thousand simultaneous clients.</p>
+  </div>
+</section>
+</div>
+
+<script>
+(function(){
+  const P = 1.0, CREATE = 0.3, HS = 0.4, GAP = 1.2, FAST = 0.6, EPS = 1e-6;
+  const S = { n:3, d1:6, step:0 };
+  let sch = null, events = [], shown = new Set();
+
+  const $ = id => document.getElementById(id);
+  const fmt = x => (Math.round(x*10)/10).toFixed(1) + ' s';
+  const col = i => `var(--c${i+1})`;
+  const same = (a,b) => Math.abs(a-b) < EPS;
+  const r6 = x => Math.round(x*1e6)/1e6;
+
+  function build(){
+    const cs = [];
+    for(let i=0;i<S.n;i++){
+      const a = r6(0.5 + i*GAP);
+      const est = r6(a + HS);
+      const s = r6(est + (i===0 ? S.d1 : FAST));
+      cs.push({i, a, est, s, port:50001+i});
+    }
+    const thr = cs.map(c => { const acc=c.est, start=Math.max(acc,c.s); return {...c, acc, start, e:r6(start+P)}; });
+    let free = 0;
+    const seq = cs.map(c => { const acc=Math.max(c.est,free), start=Math.max(acc,c.s), e=r6(start+P); free=e; return {...c, acc, start, e}; });
+    const horizon = Math.ceil(Math.max(...seq.map(c=>c.e)) + 0.6);
+    sch = {thr, seq, horizon};
+
+    const ts = [0];
+    thr.forEach(c => ts.push(c.a, c.est, c.acc, r6(c.acc+CREATE), c.s, c.start, c.e));
+    seq.forEach(c => ts.push(c.a, c.est, c.acc, c.s, c.start, c.e));
+    events = [...new Set(ts.map(r6))].sort((x,y)=>x-y);
+    S.step = 0; shown.clear();
+    $('stepmax').textContent = events.length - 1;
+    buildSummary();
+  }
+  const T = () => events[S.step];
+
+  /* ---------- what happens now ---------- */
+  function nowA(t){
+    const out = [];
+    if(t === 0) out.push([null, 'Server started: <code>main</code> blocked in <code>accept()</code>. No clients yet.']);
+    sch.thr.forEach(c => {
+      const k = c.i+1;
+      if(same(t,c.a)) out.push([c.i, `Client ${k} calls <code>new Socket("localhost", 7896)</code>: the OS starts the TCP handshake (SYN, SYN-ACK, ACK).`]);
+      if(same(t,c.acc)) out.push([c.i, `Handshake done. <code>accept()</code> returns the Socket for Client ${k}, and <code>main</code> runs <code>new Connection(clientSocket)</code>: the constructor creates <code>in</code> and <code>out</code> and calls <code>start()</code>.`]);
+      if(same(t,c.acc+CREATE)) out.push([c.i, `Thread-${c.i} is running <code>run()</code> and blocks in <code>readUTF()</code>. <code>main</code> is already back in <code>accept()</code>.`]);
+      if(same(t,c.s)) out.push([c.i, `Client ${k} calls <code>writeUTF()</code> and blocks in <code>readUTF()</code> waiting for the reply.`]);
+      if(same(t,c.start)) out.push([c.i, `On Thread-${c.i}, <code>readUTF()</code> returns; the thread replies with <code>writeUTF(data)</code> and closes the socket in <code>finally</code>.`]);
+      if(same(t,c.e)) out.push([c.i, `Client ${k} receives the reply. Thread-${c.i} ends (TERMINATED); its Connection object is left for the garbage collector.`]);
+    });
+    return out;
+  }
+  function nowB(t){
+    const out = [];
+    if(t === 0) out.push([null, 'Server started: <code>main</code> blocked in <code>accept()</code>. No clients yet.']);
+    sch.seq.forEach(c => {
+      const k = c.i+1;
+      if(same(t,c.a)) out.push([c.i, `Client ${k} calls <code>new Socket("localhost", 7896)</code>: the OS starts the TCP handshake (SYN, SYN-ACK, ACK).`]);
+      if(same(t,c.est) && c.acc > c.est + EPS) out.push([c.i, `Handshake done, but <code>main</code> is busy with another client. Client ${k}'s connection waits in the ServerSocket queue.`]);
+      if(same(t,c.acc)) out.push([c.i, same(c.acc,c.est)
+        ? `Handshake done. <code>accept()</code> returns the Socket for Client ${k}; <code>main</code> creates the streams and calls <code>readUTF()</code>.`
+        : `<code>main</code> is back in <code>accept()</code> and picks up Client ${k} from the queue after ${fmt(c.acc-c.est)} pending.`]);
+      if(same(t,c.s)) out.push([c.i, t < c.acc - EPS
+        ? `Client ${k} calls <code>writeUTF()</code>: the bytes sit in the server's buffer because nobody has accepted the connection yet. The client blocks in <code>readUTF()</code>.`
+        : `Client ${k} calls <code>writeUTF()</code> and blocks in <code>readUTF()</code> waiting for the reply.`]);
+      if(same(t,c.start)) out.push([c.i, `On <code>main</code>, <code>readUTF()</code> returns${c.s < c.acc - EPS ? ' immediately (the data was already in the buffer)' : ''}; it replies with <code>writeUTF(data)</code> and closes the socket.`]);
+      if(same(t,c.e)) out.push([c.i, `Client ${k} receives the reply. <code>main</code> goes back to <code>accept()</code>.`]);
+    });
+    return out;
+  }
+  function nowHTML(items){
+    if(!items.length) return `<div class="lbl">At this moment</div><div class="quiet">Nothing changes in this scenario at this moment.</div>`;
+    return `<div class="lbl">At this moment</div><ul>${items.map(([i,txt]) => `<li style="--cc:${i===null?'var(--ink)':col(i)}">${txt}</li>`).join('')}</ul>`;
+  }
+
+  /* ---------- timeline (revealed up to t) ---------- */
+  function pct(x){ return (x / sch.horizon * 100).toFixed(3) + '%'; }
+  function seg(cls, a, b, t, extra='', title=''){
+    b = Math.min(b, t);
+    if(b - a <= 0.001) return '';
+    return `<div class="seg ${cls}" style="left:${pct(a)};width:${pct(b-a)};${extra}" title="${title}"></div>`;
+  }
+  function timeline(id, cs, mode, t){
+    const H = sch.horizon;
+    let labels = `<div class="row">main<small>${mode==='thr'?'accepts connections':'does everything'}</small></div>`;
+    let main = seg('idle', 0, H, t, '', 'main blocked in accept()');
+    if(mode==='thr'){
+      cs.forEach(c => main += seg('tick', c.acc, c.acc+CREATE, t, `--cc:${col(c.i)}`, `new Connection() for Client ${c.i+1}`));
+    } else {
+      cs.forEach(c => {
+        main += seg('cwait', c.acc, c.start, t, `--cc:${col(c.i)}`, `main blocked in readUTF() for Client ${c.i+1}`);
+        main += seg('cbusy', c.start, c.e, t, `--cc:${col(c.i)}`, `main replying to Client ${c.i+1}`);
+      });
+    }
+    let rows = `<div class="row">${main}</div>`;
+    cs.forEach(c => {
+      labels += `<div class="row" style="--cc:${col(c.i)}"><span><span class="dot"></span>Client ${c.i+1}</span><small>${mode==='thr' ? 'Thread-'+c.i : 'served by main'}</small></div>`;
+      let r = '';
+      r += seg('hs', c.a, c.est, t, '', 'TCP connection establishment (handshake)');
+      r += seg('pend', c.est, c.acc, t, '', 'Pending in the ServerSocket queue');
+      r += seg('wait', c.acc, c.start, t, '', 'Server blocked in readUTF()');
+      r += seg('run', c.start, c.e, t, '', 'writeUTF() and close()');
+      if(c.s <= t + EPS) r += `<span class="mk" style="left:${pct(c.s)}" title="Client called writeUTF()">▼</span>`;
+      if(c.e <= t + EPS) r += `<span class="mk done" style="left:${pct(c.e)}" title="Reply received">✓</span>`;
+      rows += `<div class="row">${r}</div>`;
+    });
+    const step = H > 16 ? 2 : 1;
+    let axis = '';
+    for(let x=0; x<=H; x+=step) axis += `<span style="left:${pct(x)}">${x}s</span>`;
+    labels += `<div class="axis"></div>`;
+    $(id).innerHTML = `<div class="labels">${labels}</div><div class="tracks">${rows}<div class="axis">${axis}</div><div class="cursor" style="left:${pct(t)}"></div></div>`;
+  }
+
+  /* ---------- scene ---------- */
+  function clientStatus(c, t){
+    if(t < c.a) return {cls:'off', pill:'off', tag:'—', txt:'Not connected yet.'};
+    if(t >= c.e) return {cls:'done', pill:'done', tag:'finished', txt:`Received the reply after ${fmt(c.e-c.a)}.`};
+    if(t < c.est) return {cls:'', pill:'hs', tag:'connecting', txt:'new Socket(...) in progress: TCP handshake.'};
+    const pending = t < c.acc, sent = t >= c.s;
+    if(pending && !sent) return {cls:'pend', pill:'pend', tag:'pending', txt:'Connected, but the connection is in the server queue: accept() has not picked it up.'};
+    if(pending && sent) return {cls:'pend', pill:'pend', tag:'pending', txt:'Already called writeUTF() and is blocked in readUTF(). The request is stuck in the server buffer.'};
+    if(!sent) return {cls:'', pill:'wait', tag:'preparing', txt:'Connected, but has not sent the request yet.'};
+    return {cls:'', pill:'run', tag:'waiting', txt:'Blocked in readUTF() waiting for the reply.'};
+  }
+  function clientsHTML(cs, t){
+    return cs.map(c => {
+      const st = clientStatus(c, t);
+      return `<div class="client ${st.cls}" style="--cc:${col(c.i)}"><div class="nm"><span>Client ${c.i+1}</span><span class="pill ${st.pill}">${st.tag}</span></div><div class="st">${st.txt}</div></div>`;
+    }).join('');
+  }
+  function connState(c, t){
+    if(t < Math.min(c.acc+CREATE, c.start)) return ['constructor · this.start()', 'run'];
+    if(t < c.start) return ['run() · in.readUTF() blocked', 'wait'];
+    if(t < c.e) return ['run() · out.writeUTF(data) · close()', 'run'];
+    return ['TERMINATED · run() finished', 'off'];
+  }
+  function serverA(t){
+    const cs = sch.thr;
+    const creating = cs.find(c => t >= c.acc && t < c.acc + CREATE);
+    const mainSt = creating ? `new Connection(clientSocket) for Client ${creating.i+1}` : 'accept() blocked waiting for a connection';
+    let h = `<div class="mainthread ${creating?'busy':''}" style="--cc:${creating?col(creating.i):'var(--ink)'}"><div class="nm">Thread main</div><div class="st">${mainSt}</div></div>`;
+    const born = cs.filter(c => t >= c.acc);
+    if(!born.length) h += `<div class="empty">No Connection objects yet. Each accepted connection creates one.</div>`;
+    born.forEach(c => {
+      const [txt, k] = connState(c, t);
+      const key = 'A'+c.i, isNew = !shown.has(key); shown.add(key);
+      h += `<div class="conn ${t>=c.e?'dead':''} ${isNew?'new':''}" style="--cc:${col(c.i)}">
+        <div class="top"><span>Connection #${c.i+1}</span><small>Thread-${c.i}</small></div>
+        <dl><dt>clientSocket</dt><dd>Socket[port=${c.port}, localport=7896]</dd><dt>in</dt><dd>DataInputStream</dd><dt>out</dt><dd>DataOutputStream</dd></dl>
+        <div class="state"><span class="pill ${k}">${txt}</span></div></div>`;
+    });
+    return h;
+  }
+  function serverB(t){
+    const cs = sch.seq;
+    const cur = cs.find(c => t >= c.acc && t < c.e);
+    let mainSt = 'accept() blocked waiting for a connection';
+    if(cur) mainSt = t < cur.start ? `in.readUTF() blocked waiting for Client ${cur.i+1}` : `out.writeUTF(data) · close() for Client ${cur.i+1}`;
+    let h = `<div class="mainthread ${cur?'busy':''}" style="--cc:${cur?col(cur.i):'var(--ink)'}"><div class="nm">Thread main</div><div class="st">${mainSt}</div></div>`;
+    const q = cs.filter(c => t >= c.est && t < c.acc);
+    h += `<div class="backlog"><div class="ttl">ServerSocket queue (waiting for accept())</div><div class="chips">${
+      q.length ? q.map(c => `<span class="chip ${t>=c.s?'sent':''}" style="--cc:${col(c.i)}">Client ${c.i+1}</span>`).join('') : '<span style="color:var(--muted)">empty</span>'
+    }</div></div>`;
+    h += `<div class="locals"><div class="ttl">No Connection object</div>${
+      cur ? `<div class="mono">clientSocket = Socket[port=${cur.port}] · in · out</div><div style="margin-top:3px">Socket and streams are local variables of main, and there is only one request at a time.</div>`
+          : `<div style="color:var(--muted)">No request in progress.</div>`
+    }</div>`;
+    return h;
+  }
+
+  const CODE_A = [
+    'while (true) {',
+    '    Socket clientSocket = listenSocket.accept();',
+    '    Connection c = new Connection(clientSocket);  <cm>// start() in the constructor</cm>',
+    '}'
+  ];
+  const CODE_B = [
+    'while (true) {',
+    '    Socket clientSocket = listenSocket.accept();',
+    '    DataInputStream in = new DataInputStream(...);',
+    '    DataOutputStream out = new DataOutputStream(...);',
+    '    String data = in.readUTF();                 <cm>// blocks</cm>',
+    '    out.writeUTF(data);',
+    '    clientSocket.close();',
+    '}'
+  ];
+  function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function codeHTML(lines, on){
+    return lines.map((l,i) => {
+      const parts = l.split('<cm>');
+      let h = esc(parts[0]);
+      if(parts[1]) h += `<i class="cm">${esc(parts[1].replace('</cm>',''))}</i>`;
+      return `<span class="${on.includes(i)?'on':''}">${h || ' '}</span>`;
+    }).join('');
+  }
+  function linesA(t){ return sch.thr.some(c => t>=c.acc && t<c.acc+CREATE) ? [2] : [1]; }
+  function linesB(t){
+    const cur = sch.seq.find(c => t >= c.acc && t < c.e);
+    if(!cur) return [1];
+    return t < cur.start ? [4] : [5,6];
+  }
+
+  function render(){
+    const t = T();
+    $('clock').textContent = fmt(t);
+    $('stepn').textContent = S.step;
+    $('prev').disabled = S.step === 0;
+    $('next').disabled = S.step === events.length - 1;
+    $('next').textContent = S.step === events.length - 1 ? 'Finished' : 'Next step';
+
+    $('tA').textContent = 1 + sch.thr.filter(c => t >= c.acc && t < c.e).length;
+    $('nowA').innerHTML = nowHTML(nowA(t));
+    $('codeA').innerHTML = codeHTML(CODE_A, linesA(t));
+    $('clientsA').innerHTML = clientsHTML(sch.thr, t);
+    $('serverA').innerHTML = serverA(t);
+    timeline('tlA', sch.thr, 'thr', t);
+
+    $('nowB').innerHTML = nowHTML(nowB(t));
+    $('codeB').innerHTML = codeHTML(CODE_B, linesB(t));
+    $('clientsB').innerHTML = clientsHTML(sch.seq, t);
+    $('serverB').innerHTML = serverB(t);
+    timeline('tlB', sch.seq, 'seq', t);
+  }
+
+  /* ---------- summary ---------- */
+  function buildSummary(){
+    let h = `<thead><tr><th>Client</th><th class="num">Handshake</th><th class="num">Sent after</th><th class="num">With threads</th><th class="num">Without threads</th><th class="num">Time in queue</th></tr></thead><tbody>`;
+    sch.seq.forEach((c,k) => {
+      const a = sch.thr[k];
+      const worse = (c.e - c.a) - (a.e - a.a) > 0.05;
+      h += `<tr><td><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${col(c.i)};margin-right:6px"></span>Client ${c.i+1}</td>
+        <td class="num">${fmt(c.est-c.a)}</td><td class="num">${fmt(c.s-c.a)}</td><td class="num">${fmt(a.e-a.a)}</td><td class="num ${worse?'worse':''}">${fmt(c.e-c.a)}</td><td class="num ${c.acc-c.est>0.05?'worse':''}">${fmt(c.acc-c.est)}</td></tr>`;
+    });
+    h += `</tbody>`;
+    $('summary').innerHTML = h;
+    let peak = 1;
+    events.forEach(t => { peak = Math.max(peak, 1 + sch.thr.filter(c => t>=c.acc && t<c.e).length); });
+    const victim = sch.seq.slice(1).sort((x,y)=>(y.acc-y.est)-(x.acc-x.est))[0];
+    let txt;
+    if(victim && victim.acc - victim.est > 0.05){
+      const blocker = sch.seq.find(c => c.acc <= victim.est + EPS && c.e > victim.est) || sch.seq[0];
+      txt = `Without threads, Client ${victim.i+1} sent its request ${fmt(victim.s-victim.a)} after calling new Socket, but only got the reply after ${fmt(victim.e-victim.a)}: it spent ${fmt(victim.acc-victim.est)} in the queue because main was busy with Client ${blocker.i+1}. With threads, the server reached ${peak} live threads at the same time and no client waited for another.`;
+    } else {
+      txt = `With Client 1 sending right away, each request finishes before the next one arrives, so both versions behave almost the same. The difference shows up when a request takes long: increase Client 1's delay.`;
+    }
+    $('insight').textContent = txt;
+  }
+
+  /* ---------- controls ---------- */
+  function go(d){ const n = Math.max(0, Math.min(events.length-1, S.step + d)); if(n !== S.step){ S.step = n; render(); } }
+  $('next').addEventListener('click', () => go(1));
+  $('prev').addEventListener('click', () => go(-1));
+  $('reset').addEventListener('click', () => { S.step = 0; shown.clear(); render(); });
+  document.addEventListener('keydown', e => {
+    if(e.target.tagName === 'INPUT' || (e.key === ' ' && e.target.tagName === 'BUTTON')) return;
+    if(e.key === 'ArrowRight' || e.key === ' '){ e.preventDefault(); go(1); }
+    if(e.key === 'ArrowLeft'){ e.preventDefault(); go(-1); }
+  });
+  $('nclients').addEventListener('input', e => { S.n = +e.target.value; $('nval').textContent = S.n; build(); render(); });
+  $('delay').addEventListener('input', e => { S.d1 = +e.target.value; $('dval').textContent = fmt(S.d1); build(); render(); });
+
+  build(); render();
+})();
+</script>
+</body>
+</html>
