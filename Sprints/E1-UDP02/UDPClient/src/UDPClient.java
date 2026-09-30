@@ -18,8 +18,8 @@ public class UDPClient {
         if (args.length > 1) {
             try {
                 serverPort = Integer.parseInt(args[1]);
-                if (serverPort < 1 || serverPort > 65535) {
-                    System.out.println("O porto tem de estar entre 1 e 65535.");
+                if (serverPort < 1023 || serverPort > 65535) {
+                    System.out.println("O porto tem de estar entre 1023 e 65535.");
                     return;
                 }
             } catch (NumberFormatException exception) {
@@ -67,6 +67,7 @@ public class UDPClient {
 
                 String message = sequenceNumber + "," + messageText;
                 byte[] requestBytes = message.getBytes(StandardCharsets.UTF_8);
+                // O cabeçalho com o número também conta para o limite de bytes do datagrama.
                 if (requestBytes.length > MAX_DATAGRAM_BYTES) {
                     System.out.println("Datagrama demasiado grande em UTF-8; limite: "
                             + MAX_DATAGRAM_BYTES + " bytes.");
@@ -183,6 +184,7 @@ public class UDPClient {
             if (value.length() < maxCharacters) {
                 value.append((char) character);
             } else {
+                // Continua a consumir a linha para que o excesso não seja lido como a próxima entrada.
                 tooLong = true;
             }
         }
@@ -200,6 +202,7 @@ public class UDPClient {
         return true;
     }
 
+    // Rejeita caracteres de controlo e pares UTF-16 incompletos antes de criar o datagrama.
     private static boolean containsControlCharacters(String value) {
         for (int index = 0; index < value.length();) {
             char current = value.charAt(index);

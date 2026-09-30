@@ -43,6 +43,7 @@ public class UDPServer {
             return nLastMessageInOrder;
         }
 
+        // Entrega a mensagem esperada e avança pelas mensagens consecutivas já retidas.
         if (nLastMessageInOrder < Integer.MAX_VALUE
                 && nCurrentMessage == nLastMessageInOrder + 1) {
             deliveredMessages.add(currentMessage);
@@ -50,6 +51,7 @@ public class UDPServer {
 
             while (nLastMessageInOrder < Integer.MAX_VALUE) {
                 int nextSequence = nLastMessageInOrder + 1;
+                // Retirar do mapa evita voltar a entregar esta mensagem numa receção futura.
                 String nextMessage = pendingMessages.remove(nextSequence);
                 if (nextMessage == null) {
                     break;
@@ -72,6 +74,7 @@ public class UDPServer {
             System.out.println("Servidor UDP a escutar no porto " + SERVER_PORT);
 
             while (true) {
+                // Um byte extra permite detetar datagramas que excedem o limite permitido.
                 byte[] buffer = new byte[MAX_DATAGRAM_BYTES + 1];
                 DatagramPacket request = new DatagramPacket(buffer, buffer.length);
                 socket.receive(request);
@@ -138,6 +141,7 @@ public class UDPServer {
 
                 if (invalidReason != null) {
                     response = "error,invalid_datagram";
+                // O avanço de L indica que a mensagem recebida foi entregue, possivelmente em cascata.
                 } else if (lastMessageInOrder > previousLastMessageInOrder) {
                     response = receivedMessage;
                 } else {
@@ -176,6 +180,7 @@ public class UDPServer {
         }
     }
 
+    // Impede que números de sequência com sinais, espaços ou outros caracteres sejam aceites.
     private static boolean containsOnlyAsciiDigits(String value) {
         if (value.isEmpty()) {
             return false;
@@ -188,6 +193,7 @@ public class UDPServer {
         return true;
     }
 
+    // Impede que mensagens com caracteres de controlo alterem a interpretação ou apresentação do texto.
     private static boolean containsControlCharacters(String value) {
         for (int index = 0; index < value.length();) {
             int codePoint = value.codePointAt(index);
@@ -199,6 +205,7 @@ public class UDPServer {
         return false;
     }
 
+    // Mostra as entradas por número para tornar o estado da estrutura temporária fácil de inspecionar.
     private static void printState(int lastMessageInOrder, List<String> deliveredThisStep) {
         System.out.println("L = " + lastMessageInOrder);
         System.out.println("Temporárias: " + new TreeMap<>(pendingMessages));
