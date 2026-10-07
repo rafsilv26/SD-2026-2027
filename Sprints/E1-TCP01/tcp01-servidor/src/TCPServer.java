@@ -9,7 +9,7 @@ public class TCPServer {
             int serverPort = 7896;
             ServerSocket listenSocket = new ServerSocket(serverPort);
             while (true) {
-                Socket clientSocket = listenSocket.accept();    // bloqueia à espera de uma ligação
+                Socket clientSocket = listenSocket.accept();    // BLOQUEIA: espera que um cliente se ligue
                 Connection c = new Connection(clientSocket);    // processa o pedido noutra thread
             }
         } catch (IOException e) {
