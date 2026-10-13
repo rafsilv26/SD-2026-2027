@@ -1,0 +1,531 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Replicação com PubSub do IPFS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: igual à Parte A — narração, palco SVG (líder → daemon(s) Kubo → réplicas), inspetor da mensagem, consolas */
+:root{
+  --bg:#ecf0f3; --panel:#ffffff; --ink:#17202b; --muted:#5b6876; --line:#c5ced8;
+  --leader:#2a54b5; --net:#b06a0a; --rep:#17786b; --node:#6a45a8; --node-soft:#efe8f8; --bad:#b5372c; --chip:#f7e6c8; --chip-ink:#6b4100;
+  --cli:#1d2733; --cli-ink:#d9e4ee; --soft:#f5f7f9;
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#10151b; --panel:#19212a; --ink:#e2e8ee; --muted:#92a0ae; --line:#33404d;
+  --leader:#86a6f2; --net:#e3a44c; --rep:#52c2b0; --node:#b393ea; --node-soft:#2a2238; --bad:#f07f73; --chip:#4a3a1e; --chip-ink:#f6d9a6;
+  --cli:#0b0f14; --cli-ink:#d9e4ee; --soft:#141b22; color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:#10151b; --panel:#19212a; --ink:#e2e8ee; --muted:#92a0ae; --line:#33404d;
+  --leader:#86a6f2; --net:#e3a44c; --rep:#52c2b0; --node:#b393ea; --node-soft:#2a2238; --bad:#f07f73; --chip:#4a3a1e; --chip-ink:#f6d9a6;
+  --cli:#0b0f14; --cli-ink:#d9e4ee; --soft:#141b22; color-scheme:dark }
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5}
+.wrap{max-width:1120px;margin:0 auto;padding-inline:16px;padding-block:28px 48px;display:grid;gap:18px}
+header{display:grid;gap:6px}
+.eyebrow{font-family:var(--f-mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--f-display);font-weight:700;font-size:clamp(28px,4.5vw,42px);line-height:1.05;margin:0;text-wrap:balance}
+h1 span{color:var(--node)}
+.lede{margin:0;max-width:70ch;color:var(--muted)}
+.tabs{display:flex;flex-wrap:wrap;gap:8px}
+.tab{font:500 14px/1.2 var(--f-body);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 14px;cursor:pointer;display:flex;gap:8px;align-items:baseline}
+.tab small{font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+.tab[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.tab[aria-pressed="true"] small{color:var(--bg);opacity:.75}
+.tab:focus-visible,.btn:focus-visible,select:focus-visible{outline:2px solid var(--node);outline-offset:2px}
+.bench{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.caption{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;padding:16px 18px;border-bottom:1px solid var(--line);min-height:128px}
+.stepno{font-family:var(--f-display);font-weight:700;font-size:34px;line-height:1;color:var(--node);grid-row:span 3;font-variant-numeric:tabular-nums;min-width:2ch}
+.ctitle{font-family:var(--f-display);font-weight:600;font-size:20px;margin:0;text-wrap:balance}
+.ctext{margin:0;max-width:78ch;min-width:0}
+.ccode{font-family:var(--f-mono);font-size:12.5px;background:var(--soft);border:1px solid var(--line);border-radius:6px;padding:4px 8px;justify-self:start;max-width:100%;overflow-x:auto;white-space:pre;margin-top:4px}
+.ccode:empty{display:none}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--soft)}
+.btn{font:500 14px/1 var(--f-body);background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:9px 14px;cursor:pointer}
+.btn.primary{background:var(--leader);color:var(--panel);border-color:var(--leader)}
+.controls label{font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center;margin-left:auto}
+select{font:14px var(--f-body);background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px}
+.stagewrap{overflow-x:auto}
+#stage{display:block;width:100%;min-width:680px;height:auto}
+/* inspetor */
+.inspector{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid var(--line)}
+.inspector div{padding:12px 16px;min-width:0;border-right:1px solid var(--line)}
+.inspector div:last-child{border-right:0}
+.inspector h3{margin:0 0 4px;font:600 12px var(--f-body);letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.inspector pre{margin:0;font:11.5px/1.5 var(--f-mono);white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink)}
+.inspector mark{background:var(--node-soft);color:var(--node);border-radius:3px;padding:0 2px}
+@media (max-width:760px){.inspector{grid-template-columns:1fr}.inspector div{border-right:0;border-bottom:1px solid var(--line)}}
+/* SVG */
+.box{fill:var(--panel);stroke:var(--line);stroke-width:1.2}
+.hdr-l{fill:var(--leader)} .hdr-r{fill:var(--rep)} .hdr-n{fill:var(--node)} .hdr-off{fill:var(--muted)}
+.hdrtxt{fill:var(--panel);font:600 13px var(--f-display);letter-spacing:.02em}
+.sub{fill:var(--muted);font:11px var(--f-mono)}
+.lbl{fill:var(--ink);font:500 12px var(--f-body)}
+.mono{fill:var(--ink);font:10.5px var(--f-mono)}
+.mono.fresh{fill:var(--rep);font-weight:600}
+.mono.fresh-l{fill:var(--leader);font-weight:600}
+.nline{fill:var(--ink);font:10.5px var(--f-mono)}
+.nline.off{fill:var(--muted)}
+.clibg{fill:var(--cli)}
+.clitxt{fill:var(--cli-ink);font:12px var(--f-mono)}
+.badge-ok{fill:var(--panel);font:600 11px var(--f-mono)}
+.badge-bad{fill:#fff;font:600 11px var(--f-mono)}
+.badge-bad-bg{fill:var(--bad)}
+.link{fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:4 5}
+.stream{fill:none;stroke:var(--rep);stroke-width:2.2}
+.http{fill:none;stroke:var(--leader);stroke-width:2;stroke-dasharray:2 4}
+.gossip{fill:none;stroke:var(--node);stroke-width:2.6}
+.gtxt{fill:var(--node);font:600 11px var(--f-display);letter-spacing:.05em}
+.chip{fill:var(--chip);stroke:var(--net);stroke-width:1}
+.chiptxt{fill:var(--chip-ink);font:600 10.5px var(--f-mono)}
+.down rect.box{stroke-dasharray:5 4;opacity:.7}
+.status{font:500 11.5px var(--f-body);fill:var(--muted)}
+.status.bad{fill:var(--bad)}
+.pk circle{fill:var(--net);stroke:var(--panel);stroke-width:2}
+.pk text{fill:#fff;font:600 11px var(--f-mono);text-anchor:middle}
+.pill rect{fill:var(--leader);stroke:var(--panel);stroke-width:2}
+.pill text{fill:var(--panel);font:600 10.5px var(--f-mono);text-anchor:middle}
+.resp rect{fill:var(--panel);stroke:var(--leader);stroke-width:1.5}
+.resp text{fill:var(--leader);font:600 10.5px var(--f-mono);text-anchor:middle}
+.sreq rect{fill:var(--rep);stroke:var(--panel);stroke-width:2}
+.sreq text{fill:var(--panel);font:600 10.5px var(--f-mono);text-anchor:middle}
+.fade{transition:opacity .4s}
+/* consolas */
+.logs{display:grid;gap:8px}
+.logs h2{font-family:var(--f-display);font-weight:600;font-size:16px;margin:0;display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.logs h2 span{font:12px var(--f-body);color:var(--muted)}
+#log{list-style:none;margin:0;padding:10px 0;background:var(--cli);color:var(--cli-ink);border-radius:10px;font:12.5px/1.55 var(--f-mono);height:220px;overflow:auto}
+#log li{display:grid;grid-template-columns:62px 1fr;gap:8px;padding:0 14px}
+#log li span{min-width:0;overflow-wrap:anywhere}
+#log b{font-weight:600}
+.t-L{color:#8fb0ff}.t-R{color:#6fd6c4}.t-N{color:#c8a8ff}.t-X{color:#ff8f84}
+#log li.warn span{color:#ffb1a8}
+#log li.cmd span{color:#f2d58a}
+.legend{display:flex;flex-wrap:wrap;gap:14px 22px;font-size:13px;color:var(--muted);margin:0;padding:0;list-style:none}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+.foot{font-size:13px;color:var(--muted);max-width:80ch;margin:0}
+@media (max-width:560px){ .caption{grid-template-columns:1fr} .stepno{grid-row:auto;font-size:26px} .controls label{margin-left:0} }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Sistemas Distribuídos · COMINDIR01 · 4.2 Parte B</div>
+    <h1>Replicação com <span>PubSub do IPFS</span></h1>
+    <p class="lede">O mesmo líder e as mesmas réplicas da Parte A, mas agora o intermediário é um daemon Kubo e um tópico. Os programas Java falam com o seu nó local por HTTP, e os nós falam entre si por gossipsub.</p>
+  </header>
+
+  <nav class="tabs" aria-label="Cenários">
+    <button class="tab" id="tab-A" data-sc="A" aria-pressed="true">Linha de comandos <small>ponto 8</small></button>
+    <button class="tab" id="tab-B" data-sc="B" aria-pressed="false">Um só nó <small>ponto 12 · repete 4</small></button>
+    <button class="tab" id="tab-C" data-sc="C" aria-pressed="false">Réplica parada <small>ponto 12 · repete 5</small></button>
+    <button class="tab" id="tab-D" data-sc="D" aria-pressed="false">Dois nós <small>ponto 12</small></button>
+    <button class="tab" id="tab-E" data-sc="E" aria-pressed="false">Rajada <small>ponto 12 · repete 7</small></button>
+  </nav>
+
+  <section class="bench" aria-label="Animação">
+    <div class="caption" aria-live="polite">
+      <div class="stepno" id="stepno">1</div>
+      <h2 class="ctitle" id="ctitle">Preparar o nó</h2>
+      <p class="ctext" id="ctext">A animação está a carregar.</p>
+      <div class="ccode" id="ccode"></div>
+    </div>
+    <div class="controls">
+      <button class="btn primary" id="play">❚❚ Pausa</button>
+      <button class="btn" id="step">Próximo passo ›</button>
+      <button class="btn" id="restart">↺ Recomeçar</button>
+      <label for="speed">Velocidade
+        <select id="speed"><option value="0.5">0,5×</option><option value="1" selected>1×</option><option value="1.6">1,6×</option><option value="2.5">2,5×</option></select>
+      </label>
+    </div>
+    <div class="stagewrap">
+      <svg id="stage" viewBox="0 0 900 440" role="img" aria-label="Líder, daemons Kubo e três réplicas ligadas por pedidos HTTP e pelo tópico rep01-temperaturas"></svg>
+    </div>
+    <div class="inspector" aria-label="Última mensagem">
+      <div><h3>Pedido HTTP do líder</h3><pre id="insReq">—</pre></div>
+      <div><h3>Linha JSON no stream da réplica</h3><pre id="insJson">—</pre></div>
+      <div><h3>Depois de fromMultibase(data)</h3><pre id="insLine">—</pre></div>
+    </div>
+  </section>
+
+  <section class="logs">
+    <h2>Consolas <span>o que cada programa ou comando escreve no terminal</span></h2>
+    <ul id="log"></ul>
+  </section>
+
+  <ul class="legend">
+    <li><i style="background:var(--leader)"></i>Pedido HTTP à API do nó (porto 5001 / 5002)</li>
+    <li><i style="background:var(--node)"></i>Daemon Kubo e ligação gossipsub entre nós</li>
+    <li><i style="background:var(--rep)"></i>Réplica e o seu pedido /pubsub/sub aberto</li>
+    <li><i style="background:var(--net)"></i>Mensagem do tópico rep01-temperaturas</li>
+    <li><i style="background:var(--chip);border:1px solid var(--net)"></i>Registo retido em memória</li>
+    <li><i style="background:var(--bad)"></i>Divergência</li>
+  </ul>
+  <p class="foot">A animação ilustra o comportamento descrito na ficha. Os identificadores dos nós são exemplos, e os tempos e contagens são encenados, não são medições: os valores reais são os que cada aluno regista nos pontos 12 e 16.</p>
+</div>
+
+<script>
+(function(){
+const NS='http://www.w3.org/2000/svg';
+const svg=document.getElementById('stage');
+function el(tag,attrs,parent){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);(parent||svg).appendChild(e);return e;}
+function tx(x,y,cls,s,parent,anchor){const t=el('text',{x,y,class:cls},parent);if(anchor)t.setAttribute('text-anchor',anchor);t.textContent=s||'';return t;}
+
+/* ---------- multibase ---------- */
+function b64u(bytes){let bin='';bytes.forEach(b=>bin+=String.fromCharCode(b));return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
+const mb=s=>'u'+b64u(new TextEncoder().encode(s));
+const TOPIC='rep01-temperaturas', TOPIC_MB=mb(TOPIC);
+const ID1='12D3KooWH9xTq4…k2Lq', ID2='12D3KooWRb8MvN…7cZe';
+let seqnoCounter=0;
+function seqnoMb(){seqnoCounter++;const b=new Uint8Array(8);let v=0x186a3f0000n+BigInt(seqnoCounter);for(let i=7;i>=0;i--){b[i]=Number(v&255n);v>>=8n;}return 'u'+b64u(b);}
+
+/* ---------- palco ---------- */
+const RY=[20,160,300];
+const N1={x:310,y:40}, N2={x:310,y:262};
+const links=el('g',{});
+const pLN=el('path',{d:'M220 115 L310 115',class:'http'},links);
+const pTN=RY.map(y=>el('path',{d:`M500 115 C 585 115, 575 ${y+65} 660 ${y+65}`,class:'link'},links));
+const pT2=RY.map(y=>el('path',{d:`M500 337 C 585 337, 575 ${y+65} 660 ${y+65}`,class:'link'},links));
+const pNN=el('path',{d:'M405 190 L405 262',class:'gossip'},links);
+const gLbl=tx(415,222,'gtxt','gossipsub',links);const gLbl2=tx(415,236,'sub','4001 ↔ 4002',links);
+tx(265,105,'sub','HTTP',links,'middle');
+
+// líder
+const Lg=el('g',{});
+el('rect',{x:20,y:30,width:200,height:390,rx:10,class:'box'},Lg);
+const Lhdr=el('path',{d:'M20 40 a10 10 0 0 1 10 -10 h180 a10 10 0 0 1 10 10 v20 h-200 z',class:'hdr-l'},Lg);
+const Ltitle=tx(32,50,'hdrtxt','PubSubLeader',Lg);
+el('rect',{x:30,y:72,width:180,height:36,rx:5,class:'clibg'},Lg);
+const Lcli=tx(38,95,'clitxt','',Lg);
+const Lseq=tx(30,134,'lbl','',Lg);
+const Lstat=tx(30,152,'status','',Lg);
+el('line',{x1:30,y1:184,x2:210,y2:184,stroke:'var(--line)'},Lg);
+const Lfh=tx(30,178,'sub','lider.txt',Lg);
+const Llines=[];for(let i=0;i<11;i++)Llines.push(tx(30,202+i*19,'mono','',Lg));
+
+// nós
+function mkNode(p,n){
+  const g=el('g',{class:'fade'});
+  el('rect',{x:p.x,y:p.y,width:190,height:150,rx:10,class:'box'},g);
+  const hdr=el('path',{d:`M${p.x} ${p.y+10} a10 10 0 0 1 10 -10 h170 a10 10 0 0 1 10 10 v16 h-190 z`,class:'hdr-n'},g);
+  tx(p.x+12,p.y+18,'hdrtxt','daemon Kubo · nó '+n,g);
+  const lines=[0,1,2,3,4,5].map(k=>tx(p.x+12,p.y+46+k*17,'nline','',g));
+  return {g,hdr,lines};
+}
+const NV=[mkNode(N1,1),mkNode(N2,2)];
+
+// réplicas
+const R=RY.map((y,i)=>{
+  const g=el('g',{class:'fade'});
+  el('rect',{x:660,y,width:228,height:130,rx:10,class:'box'},g);
+  const hdr=el('path',{d:`M660 ${y+10} a10 10 0 0 1 10 -10 h208 a10 10 0 0 1 10 10 v16 h-228 z`,class:'hdr-r'},g);
+  const title=tx(672,y+18,'hdrtxt','',g);
+  const badgeBg=el('rect',{x:800,y:y+5,width:82,height:17,rx:8.5,class:'badge-bad-bg',opacity:0},g);
+  const badge=tx(841,y+18,'badge-ok','',g,'middle');
+  const stat=tx(672,y+43,'status','',g);
+  const last=tx(878,y+43,'sub','',g,'end');
+  const chips=el('g',{},g);
+  const fh=tx(672,y+84,'sub','',g);
+  const lines=[0,1,2].map(k=>tx(672,y+98+k*13.5,'mono','',g));
+  return {g,hdr,title,badge,badgeBg,stat,last,chips,fh,lines,y};
+});
+const pkLayer=el('g',{});
+
+/* ---------- estado ---------- */
+let S=null;
+function node(path,api,swarm){return {visible:true,repo:false,path,pubsub:false,up:false,api,swarm,peer:false};}
+function freshState(){
+  return {term:false,
+    L:{seq:0,file:[],cli:'',status:'',ready:false},
+    nodes:[node('~/.ipfs','5001','4001'),Object.assign(node('~/.ipfs-no2','5002','4002'),{visible:false})],
+    reps:[1,2,3].map(id=>({id,visible:true,sub:false,node:1,last:0,file:[],held:new Map(),stat:'parada',recv:0,title:'PubSubReplica '+id,fname:'replica-'+id+'.txt'})),
+    diff:false};
+}
+const now=()=>performance.now();
+function nodeLines(nd,i){
+  const subs=S.reps.filter(r=>r.visible&&r.sub&&r.node===i+1).map(r=>S.term?'terminal 1':'R'+r.id);
+  return [
+    [nd.repo?'repo '+nd.path:'sem repositório (ipfs init)',!nd.repo],
+    ['Pubsub.Enabled = '+(nd.pubsub?'true':'false'),!nd.pubsub],
+    [nd.up?'API 127.0.0.1:'+nd.api:'daemon parado',!nd.up],
+    [nd.up?'swarm :'+nd.swarm+(nd.peer?' ↔ nó '+(i?1:2):''):'',false],
+    [nd.up?'tópico '+TOPIC:'',false],
+    [nd.up?'subscritores: '+(subs.length?subs.join(' '):'—'):'',false]];
+}
+function render(){
+  if(!S)return;
+  const L=S.L,t=now();
+  Ltitle.textContent=S.term?'Terminal 2':'PubSubLeader';
+  const c=(S.term?'$ ':'> ')+L.cli;
+  Lcli.textContent=(c.length>24?'…'+c.slice(-23):c)+((Math.floor(t/500)%2&&L.ready)?'▌':'');
+  Lseq.textContent=S.term?'':(L.ready?'seq = '+L.seq:'(ainda não arrancou)');
+  Lstat.textContent=L.status;
+  Lfh.textContent=S.term?'':'lider.txt · '+L.file.length+(L.file.length===1?' linha':' linhas');
+  const lf=S.term?[]:L.file.slice(-11);
+  Llines.forEach((e,i)=>{const r=lf[i];e.textContent=r?r.s:'';e.setAttribute('class','mono'+(r&&t-r.t<1600?' fresh-l':''));});
+  S.nodes.forEach((nd,i)=>{
+    const v=NV[i];v.g.setAttribute('opacity',nd.visible?1:0);
+    v.hdr.setAttribute('class',nd.up?'hdr-n':'hdr-off');
+    nodeLines(nd,i).forEach(([s,off],k)=>{v.lines[k].textContent=s;v.lines[k].setAttribute('class','nline'+(off?' off':''));});
+  });
+  const two=S.nodes[1].visible;
+  pNN.style.opacity=two&&S.nodes[0].peer?1:0;gLbl.style.opacity=gLbl2.style.opacity=pNN.style.opacity;
+  S.reps.forEach((r,i)=>{
+    const v=R[i];
+    v.g.setAttribute('opacity',r.visible?1:0);
+    v.g.setAttribute('class','fade'+(r.sub?'':' down'));
+    v.hdr.setAttribute('class',r.sub?'hdr-r':'hdr-off');
+    v.title.textContent=S.term?'Terminal 1':r.title;
+    v.stat.textContent=r.stat;v.stat.setAttribute('class','status'+(r.sub?'':' bad'));
+    v.last.textContent=S.term?'':(r.sub?'último = '+r.last:'');
+    v.fh.textContent=S.term?'saída do comando':r.fname+' · '+r.file.length+(r.file.length===1?' linha':' linhas');
+    const ff=r.file.slice(-3);
+    v.lines.forEach((e,k)=>{const x=ff[k];e.textContent=x?x.s:'';e.setAttribute('class','mono'+(x&&t-x.t<1600?' fresh':''));});
+    pTN[i].style.opacity=r.visible&&r.node===1?1:0;pT2[i].style.opacity=r.visible&&r.node===2&&two?1:0;
+    const path=r.node===1?pTN[i]:pT2[i];path.setAttribute('class',r.sub?'stream':'link');
+    if(S.diff&&!S.term){
+      const same=r.file.length===L.file.length&&r.file.every((x,k)=>x.s===L.file[k].s);
+      v.badge.textContent=same?'= lider.txt':'≠ lider.txt';v.badge.setAttribute('class',same?'badge-ok':'badge-bad');v.badgeBg.setAttribute('opacity',same?0:1);
+    }else{v.badge.textContent='';v.badgeBg.setAttribute('opacity',0);}
+    while(v.chips.firstChild)v.chips.firstChild.remove();
+    const keys=[...r.held.keys()].sort((a,b)=>a-b);
+    if(keys.length){
+      tx(672,v.y+63,'sub','memória:',v.chips);
+      keys.slice(0,6).forEach((k,j)=>{const x=728+j*25;el('rect',{x,y:v.y+52,width:22,height:16,rx:4,class:'chip'},v.chips);tx(x+11,v.y+64,'chiptxt',String(k),v.chips,'middle');});
+      if(keys.length>6)tx(728+6*25+2,v.y+64,'chiptxt','+'+(keys.length-6),v.chips);
+    }
+  });
+}
+function loop(){try{render();}catch(e){console.error(e);}requestAnimationFrame(loop);}
+
+/* ---------- consolas e inspetor ---------- */
+const logEl=document.getElementById('log');
+const TAG={L:['LÍDER','t-L'],R1:['R1','t-R'],R2:['R2','t-R'],R3:['R3','t-R'],N1:['NÓ 1','t-N'],N2:['NÓ 2','t-N'],T1:['TERM 1','t-R'],T2:['TERM 2','t-L']};
+function log(who,msg,kind){
+  const li=document.createElement('li');if(kind)li.className=kind;
+  const b=document.createElement('b');b.className=TAG[who][1];b.textContent=TAG[who][0];
+  const s=document.createElement('span');s.textContent=msg;li.append(b,s);logEl.append(li);
+  while(logEl.children.length>300)logEl.firstChild.remove();
+  logEl.scrollTop=logEl.scrollHeight;
+}
+const insReq=document.getElementById('insReq'),insJson=document.getElementById('insJson'),insLine=document.getElementById('insLine');
+function setIns(a,b,c){insReq.textContent=a;insJson.textContent=b;insLine.textContent=c;}
+function reqText(api,line){return `POST http://127.0.0.1:${api}/api/v0/pubsub/pub\n     ?arg=${TOPIC_MB}\nContent-Type: multipart/form-data\n\n${line}`;}
+function jsonText(line,sq){return `{"from":"${ID1}",\n "data":"${mb(line)}",\n "seqno":"${sq}",\n "topicIDs":["${TOPIC_MB}"]}`;}
+
+/* ---------- motor de tempo ---------- */
+let runId=0,playing=true,stepping=false,speed=1,stepWaiter=null,stepNo=0;
+class Cancel extends Error{}
+const frame=()=>new Promise(r=>requestAnimationFrame(r));
+const running=()=>playing||stepping;
+function guard(id){if(id!==runId)throw new Cancel();}
+async function sleep(ms,id){let t=0,last=now();while(t<ms){await frame();guard(id);const n=now();if(running())t+=(n-last)*speed;last=n;}}
+async function beat(title,text,code,id){
+  guard(id);stepNo++;
+  document.getElementById('stepno').textContent=stepNo;
+  document.getElementById('ctitle').textContent=title;
+  document.getElementById('ctext').textContent=text;
+  document.getElementById('ccode').textContent=code||'';
+  if(playing&&!stepping){await sleep(Math.max(1800,text.length*30),id);}
+  else{stepping=false;await new Promise(r=>stepWaiter=r);stepWaiter=null;guard(id);stepping=!playing;}
+}
+async function fly(path,label,id,{dur=800,kind='pk',reverse=false}={}){
+  const g=el('g',{class:kind},pkLayer);
+  if(kind==='pk')el('circle',{r:13},g);
+  else{const w=Math.max(30,label.length*7+14);el('rect',{x:-w/2,y:-10,width:w,height:20,rx:10},g);}
+  tx(0,4,'',label,g);
+  const L=path.getTotalLength();let p=0,last=now();
+  try{while(p<1){await frame();guard(id);const n=now();if(running())p+=(n-last)*speed/dur;last=n;
+      const f=Math.min(p,1);const pt=path.getPointAtLength((reverse?1-f:f)*L);g.setAttribute('transform',`translate(${pt.x},${pt.y})`);}}
+  finally{g.remove();}
+}
+
+/* ---------- registos ---------- */
+const T0=Date.UTC(2026,9,1,10,15,0);
+function mkLine(seq,s,t){return `${seq};${s};${t.toFixed(1)};${new Date(T0+seq*3000).toISOString().slice(0,19)}`;}
+const RECS=[['S01',21.5],['S02',19.8],['S01',21.7],['S03',23.1],['S02',20.0],['S01',21.9],['S03',22.8],['S02',20.4],['S01',22.0],['S03',23.4],['S02',20.6]];
+function parse(line){const f=line.trim().split(';');if(f.length!==4||!/^\d+$/.test(f[0])||isNaN(parseFloat(f[2])))return null;return {seq:+f[0]};}
+function append(file,s){file.push({s,t:now()});}
+function deliver(r,line){
+  const who='R'+r.id;r.recv++;const p=parse(line);
+  if(!p){log(who,'REJEITADO: '+line,'warn');return;}
+  const seq=p.seq;
+  if(seq<=r.last||r.held.has(seq)){log(who,'DUPLICADO: '+seq,'warn');return;}
+  if(seq===r.last+1){append(r.file,line);r.last=seq;log(who,'Aplicado: '+line);
+    while(r.held.has(r.last+1)){const x=r.held.get(r.last+1);r.held.delete(r.last+1);append(r.file,x);r.last++;log(who,'Aplicado (estava retido): '+x);}return;}
+  r.held.set(seq,line);log(who,`EM ESPERA: ${seq} (falta o registo ${r.last+1})`,'warn');
+}
+// entrega pelo(s) nó(s) a quem tem /pubsub/sub aberto
+async function fanout(line,label,id,{dur=1,onDeliver}={}){
+  const sq=seqnoMb();
+  const toRep=(r,path,d)=>fly(path,label,id,{dur:d*dur}).then(()=>{if(r.sub){onDeliver?onDeliver(r,line,sq):deliver(r,line);}});
+  const jobs=S.reps.map((r,i)=>(r.visible&&r.sub&&r.node===1)?toRep(r,pTN[i],720+i*60):null).filter(Boolean);
+  const n2=S.nodes[1];
+  if(n2.visible&&n2.up&&S.nodes[0].peer){
+    const remote=S.reps.filter(r=>r.visible&&r.sub&&r.node===2);
+    if(remote.length)jobs.push(fly(pNN,label,id,{dur:520*dur}).then(()=>Promise.all(S.reps.map((r,i)=>(r.visible&&r.sub&&r.node===2)?toRep(r,pT2[i],720+i*60):null).filter(Boolean))));
+  }
+  setIns(reqText(5001,line),jsonText(line,sq),line);
+  await Promise.all(jobs);
+}
+async function publish(line,id,opt={}){
+  const label=line.split(';')[0];
+  await fly(pLN,'pub '+label,id,{kind:'pill',dur:(opt.dur||1)*560});
+  const resp=fly(pLN,'200',id,{kind:'resp',dur:(opt.dur||1)*420,reverse:true}).then(()=>{if(!opt.quiet)log('L','Registado e enviado: '+line);});
+  const fan=fanout(line,label,id,opt);
+  if(opt.noWaitFan){await resp;return {fan};}
+  await Promise.all([resp,fan]);
+}
+async function typeCLI(s,id){S.L.status='a ler da CLI';for(const c of s){S.L.cli+=c;await sleep(50,id);}await sleep(250,id);}
+async function record(id,k,opt={}){
+  const [s,t]=RECS[(k-1)%RECS.length];
+  await typeCLI(`${s} ${t.toFixed(1)}`,id);
+  const L=S.L;L.seq++;const line=mkLine(L.seq,s,t);
+  append(L.file,line);L.status='a publicar';
+  if(opt.verbose){
+    setIns(reqText(5001,line),'—','—');
+    await beat('Publicar é um pedido HTTP',`O registo ${L.seq} já está em lider.txt. Em vez do DatagramPacket, o líder faz um POST à API do seu nó: o tópico vai em multibase no arg, o registo vai no corpo multipart.`,'pubsub.publish("rep01-temperaturas", r.toLine());',id);
+  }
+  await publish(line,id,opt);
+  if(opt.verbose)await beat('O nó entrega a quem subscreveu','O daemon envia a mensagem por cada pedido /pubsub/sub que tem aberto. Cada réplica recebe uma linha JSON, decodifica o campo data e aplica o registo com a regra do número de sequência.','resp.body()                 // bloqueia à espera de cada linha\n    .forEach(json -> onMessage.accept(fromMultibase(extractField(json, "data"))));',id);
+  L.cli='';L.status='hasNextLine() à espera';
+  await sleep(250,id);
+}
+async function subscribeRep(r,id,quiet){
+  const i=r.id-1, path=r.node===1?pTN[i]:pT2[i], api=S.nodes[r.node-1].api;
+  await fly(path,'sub',id,{kind:'sreq',dur:620,reverse:true});
+  r.sub=true;r.stat='subscribe() bloqueado';
+  if(!quiet)log('R'+r.id,`Réplica ${r.id} subscreve ${TOPIC} em 127.0.0.1:${api}`+(r.last?`  (lastSeq() = ${r.last})`:''));
+}
+function nodeUp(i){const n=S.nodes[i];n.repo=true;n.pubsub=true;n.up=true;}
+function prefill(n){
+  for(let k=1;k<=n;k++){const [s,t]=RECS[k-1];const line=mkLine(k,s,t);S.L.file.push({s:line,t:0});S.reps.forEach(r=>{r.file.push({s:line,t:0});r.last=k;});}
+  S.L.seq=n;S.L.ready=true;S.L.status='hasNextLine() à espera';
+}
+function liveReps(){S.reps.forEach(r=>{r.sub=true;r.stat='subscribe() bloqueado';});}
+
+/* ---------- cenários ---------- */
+const SC={
+A:async id=>{
+  S=freshState();S.term=true;S.reps[1].visible=S.reps[2].visible=false;S.reps[0].stat='—';S.L.ready=true;
+  setIns('A linha de comandos trata sozinha da multibase.','—','—');
+  await beat('Preparar o nó','Antes de qualquer código, cada máquina precisa de um nó IPFS com repositório próprio e com o PubSub ativado na configuração.','ipfs init\nipfs config --json Pubsub.Enabled true',id);
+  log('N1','$ ipfs init','cmd');S.nodes[0].repo=true;await sleep(600,id);
+  log('N1','$ ipfs config --json Pubsub.Enabled true','cmd');S.nodes[0].pubsub=true;await sleep(600,id);
+  await beat('Arrancar o daemon','O daemon fica a correr. Expõe a API HTTP em 127.0.0.1:5001 e liga-se a outros nós pelo porto de swarm 4001.','ipfs daemon',id);
+  log('N1','$ ipfs daemon','cmd');S.nodes[0].up=true;log('N1','RPC API server listening on /ip4/127.0.0.1/tcp/5001');log('N1','Daemon is ready');await sleep(500,id);
+  await beat('Terminal 1 subscreve','O comando fica parado à espera de mensagens no tópico. Por baixo, é o mesmo pedido /pubsub/sub que a classe IpfsPubSub vai fazer.','ipfs pubsub sub rep01-temperaturas',id);
+  log('T1','$ ipfs pubsub sub rep01-temperaturas','cmd');
+  await subscribeRep(S.reps[0],id,true);S.reps[0].stat='à espera de mensagens';
+  await beat('Terminal 2 publica','Noutro terminal, publica-se uma mensagem no mesmo tópico.','echo "teste" | ipfs pubsub pub rep01-temperaturas',id);
+  for(const c of 'echo "teste" | ipfs pubsub pub rep01-temperaturas'){S.L.cli+=c;await sleep(28,id);}
+  log('T2','$ echo "teste" | ipfs pubsub pub rep01-temperaturas','cmd');
+  await fly(pLN,'pub',id,{kind:'pill',dur:560});
+  await Promise.all([fly(pLN,'200',id,{kind:'resp',dur:420,reverse:true}),
+    fly(pTN[0],'·',id,{dur:720}).then(()=>{append(S.reps[0].file,'teste');log('T1','teste');})]);
+  S.L.cli='';
+  setIns(`echo "teste" | ipfs pubsub pub ${TOPIC}`,`(o comando decodifica e mostra só o conteúdo)`,'teste');
+  await beat('A mensagem aparece no terminal 1','O PubSub funciona só com a linha de comandos. Só depois disto faz sentido escrever a classe IpfsPubSub.','',id);
+},
+B:async id=>{
+  S=freshState();nodeUp(0);
+  log('N1','Daemon is ready  (API 5001, Pubsub.Enabled = true)');
+  await beat('Um só nó','Líder e três réplicas ligados ao mesmo daemon, na porta 5001. As réplicas correm a lógica do ponto 6 (ponto 11).','',id);
+  for(const r of S.reps){await subscribeRep(r,id);}
+  await beat('As réplicas subscrevem','Cada réplica faz um POST /pubsub/sub com o tópico em multibase. O pedido não termina: a resposta é um stream, uma linha JSON por mensagem.','POST /api/v0/pubsub/sub?arg='+TOPIC_MB,id);
+  S.L.ready=true;S.L.status='hasNextLine() à espera';log('L',"Líder pronto. Formato: <sensor> <temperatura> | 'sair' para terminar");
+  await record(id,1,{verbose:true});
+  await beat('Mais quatro registos','O mesmo ciclo: ler da CLI, numerar, escrever em lider.txt, publicar no tópico.','',id);
+  for(let k=2;k<=5;k++)await record(id,k);
+  S.diff=true;
+  await beat('Comparar os ficheiros','diff lider.txt replica-n.txt: os quatro ficheiros têm as mesmas cinco linhas.','diff lider.txt replica-1.txt',id);
+},
+C:async id=>{
+  S=freshState();nodeUp(0);prefill(5);liveReps();
+  await beat('Ponto de partida','Os quatro ficheiros têm os registos 1 a 5. As três réplicas estão subscritas no nó 1.','',id);
+  const r2=S.reps[1];r2.sub=false;r2.stat='parada (processo terminado)';log('R2','^C  (processo terminado)','warn');
+  await beat('A réplica 2 pára','Com o processo termina o pedido /pubsub/sub de R2. O nó deixa de ter R2 na lista de subscritores do tópico.','',id);
+  await beat('Três registos com R2 parada','O nó só envia as mensagens pelos pedidos /pubsub/sub que tem abertos. As mensagens não ficam guardadas em lado nenhum.','',id);
+  for(let k=6;k<=8;k++)await record(id,k);
+  await beat('R2 volta a arrancar','Lê lastSeq() de replica-2.txt (5) e volta a subscrever. Os registos 6, 7 e 8 já passaram.','long ultimo = file.lastSeq();   // 5',id);
+  await subscribeRep(r2,id);
+  for(let k=9;k<=10;k++)await record(id,k);
+  S.diff=true;
+  await beat('Comparar os ficheiros','R1 e R3 acompanham o líder. O ficheiro de R2 parou no 5, e os registos 9 e 10 ficaram retidos em memória à espera do 6.','diff lider.txt replica-2.txt',id);
+},
+D:async id=>{
+  S=freshState();nodeUp(0);S.reps[1].node=S.reps[2].node=2;S.nodes[1].visible=true;
+  S.reps[1].sub=S.reps[2].sub=false;S.reps[1].stat=S.reps[2].stat='parada';
+  log('N1','Daemon is ready  (API 5001, swarm 4001)');
+  await subscribeRep(S.reps[0],id);
+  await beat('Um segundo nó na mesma máquina','O nó 2 tem repositório próprio e portos próprios: API 5002, gateway 8081, swarm 4002.','export IPFS_PATH=~/.ipfs-no2\nipfs init\nipfs config --json Pubsub.Enabled true\nipfs config Addresses.API /ip4/127.0.0.1/tcp/5002',id);
+  const n2=S.nodes[1];
+  log('N2','$ export IPFS_PATH=~/.ipfs-no2','cmd');log('N2','$ ipfs init','cmd');n2.repo=true;await sleep(400,id);
+  log('N2','$ ipfs config --json Pubsub.Enabled true','cmd');n2.pubsub=true;await sleep(300,id);
+  log('N2','$ ipfs config Addresses.API /ip4/127.0.0.1/tcp/5002','cmd');log('N2','$ ipfs config Addresses.Gateway /ip4/127.0.0.1/tcp/8081','cmd');
+  log('N2',`$ ipfs config --json Addresses.Swarm '["/ip4/0.0.0.0/tcp/4002","/ip4/0.0.0.0/udp/4002/quic-v1"]'`,'cmd');await sleep(300,id);
+  log('N2','$ ipfs daemon','cmd');n2.up=true;log('N2','RPC API server listening on /ip4/127.0.0.1/tcp/5002');await sleep(400,id);
+  await beat('R2 e R3 ligam-se ao nó 2','As réplicas 2 e 3 recebem o porto 5002 como segundo argumento e subscrevem o tópico no nó 2.','java -cp out rep01.PubSubReplica 2 5002\njava -cp out rep01.PubSubReplica 3 5002',id);
+  await subscribeRep(S.reps[1],id);await subscribeRep(S.reps[2],id);
+  await beat('Ligar os dois nós','Obtém-se o identificador do nó 2 e pede-se ao nó 1 que se ligue a ele pelo porto de swarm 4002.',"ipfs id -f '<id>'                      # no nó 2\nipfs swarm connect /ip4/127.0.0.1/tcp/4002/p2p/<id>   # no nó 1",id);
+  log('N2',"$ ipfs id -f '<id>'",'cmd');log('N2',ID2);
+  log('N1','$ ipfs swarm connect /ip4/127.0.0.1/tcp/4002/p2p/'+ID2,'cmd');log('N1','connect '+ID2+' success');
+  S.nodes[0].peer=S.nodes[1].peer=true;await sleep(500,id);
+  log('N1','$ ipfs pubsub peers '+TOPIC,'cmd');log('N1',ID2);
+  await beat('Confirmar os pares do tópico','ipfs pubsub peers mostra o nó 2 como interessado em rep01-temperaturas. A partir daqui as mensagens passam de um nó para o outro.','ipfs pubsub peers rep01-temperaturas',id);
+  S.L.ready=true;S.L.status='hasNextLine() à espera';log('L',"Líder pronto. Formato: <sensor> <temperatura> | 'sair' para terminar");
+  await record(id,1);
+  await beat('O caminho de um registo','O líder publica no nó 1. O nó 1 entrega a R1 e reencaminha por gossipsub para o nó 2, que entrega a R2 e a R3. O campo from continua a identificar o nó 1, onde a mensagem foi publicada.','',id);
+  for(let k=2;k<=5;k++)await record(id,k);
+  S.diff=true;
+  await beat('Comparar os ficheiros','As três réplicas têm as mesmas cinco linhas do líder, embora duas estejam ligadas a outro nó.','diff lider.txt replica-3.txt',id);
+},
+E:async id=>{
+  S=freshState();nodeUp(0);liveReps();S.L.ready=true;S.L.status='hasNextLine() à espera';
+  log('N1','Daemon is ready  (API 5001)');
+  await beat('O comando rajada','Igual ao do MulticastLeader: n registos do sensor SIM sem pausas. Aqui são 24 para caberem no ecrã. Cada registo é um pedido publish à API do nó.','',id);
+  await typeCLI('rajada 24',id);
+  log('L','rajada 24: início do envio (System.currentTimeMillis())');
+  const fans=[];
+  for(let k=1;k<=24;k++){
+    const t=15+((k*7.3)%15);S.L.seq=k;const line=`${k};SIM;${t.toFixed(1)};${new Date(T0+3600000+k*40).toISOString().slice(0,19)}`;
+    append(S.L.file,line);
+    fans.push((await publish(line,id,{dur:.45,quiet:true,noWaitFan:true})).fan);
+  }
+  log('L','rajada 24: fim do envio');S.L.cli='';
+  await Promise.all(fans);
+  S.reps.forEach(r=>log('R'+r.id,`rajada: recebidos ${r.recv} · escritos ${r.file.length} · retidos em memória ${r.held.size}`,r.held.size?'warn':''));
+  S.diff=true;
+  await beat('Contar o que chegou','A encenação não modela perdas nem atrasos reais. Os valores para a tabela do ponto 16 são os que medir com um nó e com dois nós.','',id);
+}
+};
+
+/* ---------- controlo ---------- */
+let current='A';
+async function run(sc){
+  runId++;const id=runId;stepNo=0;stepping=false;seqnoCounter=0;
+  if(stepWaiter){const w=stepWaiter;stepWaiter=null;w();}
+  while(pkLayer.firstChild)pkLayer.firstChild.remove();
+  logEl.textContent='';setIns('—','—','—');
+  S=freshState();
+  try{await SC[sc](id);
+    if(id===runId){await sleep(200,id);document.getElementById('ctitle').textContent+=' · fim do cenário';}
+  }catch(e){if(!(e instanceof Cancel))console.error(e);}
+}
+const playBtn=document.getElementById('play');
+function syncPlay(){playBtn.textContent=playing?'❚❚ Pausa':'▶ Reproduzir';}
+playBtn.onclick=()=>{playing=!playing;stepping=false;if(playing&&stepWaiter)stepWaiter();syncPlay();};
+document.getElementById('step').onclick=()=>{if(playing){playing=false;syncPlay();}if(stepWaiter)stepWaiter();else stepping=true;};
+document.getElementById('restart').onclick=()=>run(current);
+document.getElementById('speed').onchange=e=>speed=parseFloat(e.target.value);
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
+  current=b.dataset.sc;document.querySelectorAll('.tab').forEach(x=>x.setAttribute('aria-pressed',x===b));run(current);});
+try{if(matchMedia('(prefers-reduced-motion: reduce)').matches)playing=false;}catch(e){}
+syncPlay();
+S=freshState();
+requestAnimationFrame(loop);
+run('A');
+})();
+</script>
+
+</body></html>

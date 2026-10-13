@@ -1,0 +1,480 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Replicação com Multicast</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: uma bancada de laboratório — narração em cima, palco SVG (líder → grupo → réplicas) ao centro, consolas em baixo */
+:root{
+  --bg:#ecf0f3; --panel:#ffffff; --ink:#17202b; --muted:#5b6876; --line:#c5ced8;
+  --leader:#2a54b5; --net:#b06a0a; --rep:#17786b; --bad:#b5372c; --chip:#f7e6c8; --chip-ink:#6b4100;
+  --cli:#1d2733; --cli-ink:#d9e4ee; --soft:#f5f7f9;
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#10151b; --panel:#19212a; --ink:#e2e8ee; --muted:#92a0ae; --line:#33404d;
+  --leader:#86a6f2; --net:#e3a44c; --rep:#52c2b0; --bad:#f07f73; --chip:#4a3a1e; --chip-ink:#f6d9a6;
+  --cli:#0b0f14; --cli-ink:#d9e4ee; --soft:#141b22; color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:#10151b; --panel:#19212a; --ink:#e2e8ee; --muted:#92a0ae; --line:#33404d;
+  --leader:#86a6f2; --net:#e3a44c; --rep:#52c2b0; --bad:#f07f73; --chip:#4a3a1e; --chip-ink:#f6d9a6;
+  --cli:#0b0f14; --cli-ink:#d9e4ee; --soft:#141b22; color-scheme:dark }
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5}
+.wrap{max-width:1120px;margin:0 auto;padding-inline:16px;padding-block:28px 48px;display:grid;gap:18px}
+header{display:grid;gap:6px}
+.eyebrow{font-family:var(--f-mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--f-display);font-weight:700;font-size:clamp(28px,4.5vw,42px);line-height:1.05;margin:0;text-wrap:balance}
+h1 span{color:var(--net)}
+.lede{margin:0;max-width:68ch;color:var(--muted)}
+.tabs{display:flex;flex-wrap:wrap;gap:8px}
+.tab{font:500 14px/1.2 var(--f-body);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 14px;cursor:pointer;display:flex;gap:8px;align-items:baseline}
+.tab small{font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+.tab[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.tab[aria-pressed="true"] small{color:var(--bg);opacity:.75}
+.tab:focus-visible,.btn:focus-visible,select:focus-visible{outline:2px solid var(--net);outline-offset:2px}
+.bench{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.caption{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;padding:16px 18px;border-bottom:1px solid var(--line);min-height:128px}
+.stepno{font-family:var(--f-display);font-weight:700;font-size:34px;line-height:1;color:var(--net);grid-row:span 3;font-variant-numeric:tabular-nums;min-width:2ch}
+.ctitle{font-family:var(--f-display);font-weight:600;font-size:20px;margin:0;text-wrap:balance}
+.ctext{margin:0;max-width:78ch;min-width:0}
+.ccode{font-family:var(--f-mono);font-size:12.5px;background:var(--soft);border:1px solid var(--line);border-radius:6px;padding:4px 8px;justify-self:start;max-width:100%;overflow-x:auto;white-space:pre;margin-top:4px}
+.ccode:empty{display:none}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--soft)}
+.btn{font:500 14px/1 var(--f-body);background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:9px 14px;cursor:pointer}
+.btn.primary{background:var(--leader);color:var(--panel);border-color:var(--leader)}
+.controls label{font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center;margin-left:auto}
+select{font:14px var(--f-body);background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px}
+.stagewrap{overflow-x:auto}
+#stage{display:block;width:100%;min-width:680px;height:auto}
+/* SVG */
+.box{fill:var(--panel);stroke:var(--line);stroke-width:1.2}
+.hdr-l{fill:var(--leader)} .hdr-r{fill:var(--rep)} .hdr-off{fill:var(--muted)}
+.hdrtxt{fill:var(--panel);font:600 13px var(--f-display);letter-spacing:.02em}
+.sub{fill:var(--muted);font:11px var(--f-mono)}
+.lbl{fill:var(--ink);font:500 12px var(--f-body)}
+.mono{fill:var(--ink);font:10.5px var(--f-mono)}
+.mono.fresh{fill:var(--rep);font-weight:600}
+.mono.fresh-l{fill:var(--leader);font-weight:600}
+.clibg{fill:var(--cli)}
+.clitxt{fill:var(--cli-ink);font:13px var(--f-mono)}
+.badge-ok{fill:var(--panel);font:600 11px var(--f-mono)}
+.badge-bad{fill:#fff;font:600 11px var(--f-mono)}
+.badge-bad-bg{fill:var(--bad)}
+.link{fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:4 5}
+.grp{fill:var(--chip);stroke:var(--net);stroke-width:2}
+.grptxt{fill:var(--chip-ink);font:600 12px var(--f-mono)}
+.nettxt{fill:var(--net);font:600 12px var(--f-display);letter-spacing:.06em}
+.chip{fill:var(--chip);stroke:var(--net);stroke-width:1}
+.chiptxt{fill:var(--chip-ink);font:600 10.5px var(--f-mono)}
+.down rect.box{stroke-dasharray:5 4;opacity:.7}
+.status{font:500 11.5px var(--f-body);fill:var(--muted)}
+.status.bad{fill:var(--bad)}
+.pk circle{fill:var(--net);stroke:var(--panel);stroke-width:2}
+.pk text{fill:#fff;font:600 11px var(--f-mono);text-anchor:middle}
+.pk.bogus circle{fill:var(--bad)}
+.xmark{fill:var(--bad);font:700 18px var(--f-body);text-anchor:middle}
+.stranger rect{fill:var(--panel);stroke:var(--bad);stroke-dasharray:4 3}
+.stranger text{fill:var(--bad);font:500 11px var(--f-body);text-anchor:middle}
+/* consolas */
+.logs{display:grid;gap:8px}
+.logs h2{font-family:var(--f-display);font-weight:600;font-size:16px;margin:0;display:flex;justify-content:space-between;align-items:baseline}
+.logs h2 span{font:12px var(--f-body);color:var(--muted)}
+#log{list-style:none;margin:0;padding:10px 0;background:var(--cli);color:var(--cli-ink);border-radius:10px;font:12.5px/1.55 var(--f-mono);height:220px;overflow:auto}
+#log li{display:grid;grid-template-columns:62px 1fr;gap:8px;padding:0 14px}
+#log li span{min-width:0;overflow-wrap:anywhere}
+#log b{font-weight:600}
+.t-L{color:#8fb0ff}.t-R{color:#6fd6c4}.t-N{color:#f2b766}.t-X{color:#ff8f84}
+#log li.warn span{color:#ffb1a8}
+.legend{display:flex;flex-wrap:wrap;gap:14px 22px;font-size:13px;color:var(--muted);margin:0;padding:0;list-style:none}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+.foot{font-size:13px;color:var(--muted);max-width:80ch;margin:0}
+@media (max-width:560px){ .caption{grid-template-columns:1fr} .stepno{grid-row:auto;font-size:26px} .controls label{margin-left:0} }
+@media (prefers-reduced-motion: reduce){ *{scroll-behavior:auto} }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Sistemas Distribuídos · COMINDIR01 · 4.1 Parte A</div>
+    <h1>Replicação com <span>multicast IP</span></h1>
+    <p class="lede">Um líder, um endereço de grupo e três réplicas. Escolha um cenário e acompanhe passo a passo o caminho de cada registo, da CLI do líder até aos ficheiros das réplicas.</p>
+  </header>
+
+  <nav class="tabs" aria-label="Cenários">
+    <button class="tab" id="tab-A" data-sc="A" aria-pressed="true">Envio normal <small>ponto 4</small></button>
+    <button class="tab" id="tab-B" data-sc="B" aria-pressed="false">Réplica parada <small>ponto 5</small></button>
+    <button class="tab" id="tab-C" data-sc="C" aria-pressed="false">Réplica com seq <small>ponto 6</small></button>
+    <button class="tab" id="tab-D" data-sc="D" aria-pressed="false">Fora de ordem <small>teste do ponto 6</small></button>
+    <button class="tab" id="tab-E" data-sc="E" aria-pressed="false">Rajada <small>ponto 7</small></button>
+  </nav>
+
+  <section class="bench" aria-label="Animação">
+    <div class="caption" aria-live="polite">
+      <div class="stepno" id="stepno">1</div>
+      <h2 class="ctitle" id="ctitle">Arrancam as réplicas</h2>
+      <p class="ctext" id="ctext">As réplicas arrancam primeiro e juntam-se ao grupo.</p>
+      <div class="ccode" id="ccode"></div>
+    </div>
+    <div class="controls">
+      <button class="btn primary" id="play">❚❚ Pausa</button>
+      <button class="btn" id="step">Próximo passo ›</button>
+      <button class="btn" id="restart">↺ Recomeçar</button>
+      <label for="speed">Velocidade
+        <select id="speed"><option value="0.5">0,5×</option><option value="1" selected>1×</option><option value="1.6">1,6×</option><option value="2.5">2,5×</option></select>
+      </label>
+    </div>
+    <div class="stagewrap">
+      <svg id="stage" viewBox="0 0 900 440" role="img" aria-label="Líder, grupo multicast 230.0.0.1:6789 e três réplicas, com datagramas em trânsito"></svg>
+    </div>
+  </section>
+
+  <section class="logs">
+    <h2>Consolas <span>o que cada programa escreve no terminal</span></h2>
+    <ul id="log"></ul>
+  </section>
+
+  <ul class="legend">
+    <li><i style="background:var(--leader)"></i>Líder (rep01-lider)</li>
+    <li><i style="background:var(--net)"></i>Datagrama UDP / grupo 230.0.0.1:6789</li>
+    <li><i style="background:var(--rep)"></i>Réplica (rep01-replica)</li>
+    <li><i style="background:var(--chip);border:1px solid var(--net)"></i>Registo retido em memória</li>
+    <li><i style="background:var(--bad)"></i>Perda ou divergência</li>
+  </ul>
+  <p class="foot">A animação ilustra o comportamento descrito na ficha. Perdas, tempos e contagens são encenados para efeito visual, não são medições: os valores reais são os que cada aluno regista nos pontos 7 e 16.</p>
+</div>
+
+<script>
+(function(){
+const NS='http://www.w3.org/2000/svg';
+const svg=document.getElementById('stage');
+function el(tag,attrs,parent){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);(parent||svg).appendChild(e);return e;}
+function tx(x,y,cls,s,parent,anchor){const t=el('text',{x,y,class:cls},parent);if(anchor)t.setAttribute('text-anchor',anchor);t.textContent=s||'';return t;}
+
+/* ---------- palco ---------- */
+const RY=[20,160,300];
+const links=el('g',{});
+const pLG=el('path',{d:'M240 220 L404 220',class:'link'},links);
+const pGR=RY.map(y=>el('path',{d:`M496 220 C 585 220, 575 ${y+65} 660 ${y+65}`,class:'link'},links));
+const pSG=el('path',{d:'M450 398 L450 266',class:'link'},links);
+pSG.style.opacity=0;
+
+// grupo
+const G=el('g',{});
+el('circle',{cx:450,cy:220,r:46,class:'grp'},G);
+tx(450,216,'grptxt','230.0.0.1',G,'middle');
+tx(450,232,'grptxt',':6789',G,'middle');
+tx(450,158,'nettxt','GRUPO MULTICAST',G,'middle');
+tx(450,290,'sub','rede local · TTL = 1',G,'middle');
+const stranger=el('g',{class:'stranger',opacity:0});
+el('rect',{x:385,y:398,width:130,height:28,rx:6},stranger);
+tx(450,416,'','outro programa na rede',stranger);
+
+// líder
+const Lg=el('g',{});
+el('rect',{x:20,y:30,width:220,height:380,rx:10,class:'box'},Lg);
+el('path',{d:'M20 40 a10 10 0 0 1 10 -10 h200 a10 10 0 0 1 10 10 v20 h-220 z',class:'hdr-l'},Lg);
+tx(32,50,'hdrtxt','MulticastLeader',Lg);
+tx(228,50,'hdrtxt','rep01-lider',Lg,'end').style.opacity=.75;
+el('rect',{x:32,y:72,width:196,height:36,rx:5,class:'clibg'},Lg);
+const Lcli=tx(42,95,'clitxt','',Lg);
+const Lseq=tx(32,134,'lbl','',Lg);
+const Lstat=tx(32,152,'status','',Lg);
+el('line',{x1:32,y1:184,x2:228,y2:184,stroke:'var(--line)'},Lg);
+const Lfh=tx(32,178,'sub','lider.txt',Lg);
+const Llines=[];for(let i=0;i<10;i++)Llines.push(tx(32,202+i*19,'mono','',Lg));
+
+// réplicas
+const R=RY.map((y,i)=>{
+  const g=el('g',{});
+  const box=el('rect',{x:660,y,width:228,height:130,rx:10,class:'box'},g);
+  const hdr=el('path',{d:`M660 ${y+10} a10 10 0 0 1 10 -10 h208 a10 10 0 0 1 10 10 v16 h-228 z`,class:'hdr-r'},g);
+  tx(672,y+18,'hdrtxt','MulticastReplica '+(i+1),g);
+  const badgeBg=el('rect',{x:800,y:y+5,width:82,height:17,rx:8.5,class:'badge-bad-bg',opacity:0},g);
+  const badge=tx(841,y+18,'badge-ok','',g,'middle');
+  const stat=tx(672,y+43,'status','',g);
+  const last=tx(878,y+43,'sub','',g,'end');
+  const chips=el('g',{},g);
+  const fh=tx(672,y+84,'sub','',g);
+  const lines=[0,1,2].map(k=>tx(672,y+98+k*13.5,'mono','',g));
+  return {g,box,hdr,badge,badgeBg,stat,last,chips,fh,lines,y};
+});
+const pkLayer=el('g',{});
+
+/* ---------- estado ---------- */
+let S;
+function freshState(mode){
+  return {L:{seq:0,file:[],cli:'',status:'',ready:false},
+    reps:[1,2,3].map(id=>({id,up:false,mode,last:0,file:[],held:new Map(),stat:'parada',recv:0})),
+    diff:false};
+}
+const now=()=>performance.now();
+function render(){
+  if(!S)return;
+  const L=S.L, t=now();
+  Lcli.textContent='> '+L.cli+((Math.floor(t/500)%2&&L.ready)?'▌':'');
+  Lseq.textContent=L.ready?'seq = '+L.seq:'(ainda não arrancou)';
+  Lstat.textContent=L.status;
+  Lfh.textContent='lider.txt · '+L.file.length+(L.file.length===1?' linha':' linhas');
+  const lf=L.file.slice(-10);
+  Llines.forEach((e,i)=>{const r=lf[i];e.textContent=r?r.s:'';e.setAttribute('class','mono'+(r&&t-r.t<1600?' fresh-l':''));});
+  S.reps.forEach((r,i)=>{
+    const v=R[i];
+    v.g.setAttribute('class',r.up?'':'down');
+    v.hdr.setAttribute('class',r.up?'hdr-r':'hdr-off');
+    v.stat.textContent=r.stat; v.stat.setAttribute('class','status'+(r.up?'':' bad'));
+    v.last.textContent=r.mode==='seq'?(r.up?'último = '+r.last:''):'código do ponto 3';
+    v.fh.textContent='replica-'+r.id+'.txt · '+r.file.length+(r.file.length===1?' linha':' linhas');
+    const ff=r.file.slice(-3);
+    v.lines.forEach((e,k)=>{const x=ff[k];e.textContent=x?x.s:'';e.setAttribute('class','mono'+(x&&t-x.t<1600?' fresh':''));});
+    if(S.diff){
+      const same=r.file.length===L.file.length&&r.file.every((x,k)=>x.s===L.file[k].s);
+      v.badge.textContent=same?'= lider.txt':'≠ lider.txt';
+      v.badge.setAttribute('class',same?'badge-ok':'badge-bad');
+      v.badgeBg.setAttribute('opacity',same?0:1);
+    } else {v.badge.textContent='';v.badgeBg.setAttribute('opacity',0);}
+    // fichas retidas
+    while(v.chips.firstChild)v.chips.firstChild.remove();
+    const keys=[...r.held.keys()].sort((a,b)=>a-b);
+    if(keys.length){
+      tx(672,v.y+63,'sub','memória:',v.chips);
+      const show=keys.slice(0,6);
+      show.forEach((k,j)=>{const x=728+j*25;el('rect',{x,y:v.y+52,width:22,height:16,rx:4,class:'chip'},v.chips);tx(x+11,v.y+64,'chiptxt',String(k),v.chips,'middle');});
+      if(keys.length>6)tx(728+6*25+2,v.y+64,'chiptxt','+'+(keys.length-6),v.chips);
+    }
+  });
+}
+function loop(){try{render();}catch(e){console.error(e);}requestAnimationFrame(loop);}
+
+/* ---------- consolas ---------- */
+const logEl=document.getElementById('log');
+const TAG={L:['LÍDER','t-L'],R1:['R1','t-R'],R2:['R2','t-R'],R3:['R3','t-R'],N:['REDE','t-N'],X:['OUTRO','t-X']};
+function log(who,msg,warn){
+  const li=document.createElement('li');if(warn)li.className='warn';
+  const b=document.createElement('b');b.className=TAG[who][1];b.textContent=TAG[who][0];
+  const s=document.createElement('span');s.textContent=msg;
+  li.append(b,s);logEl.append(li);
+  while(logEl.children.length>300)logEl.firstChild.remove();
+  logEl.scrollTop=logEl.scrollHeight;
+}
+
+/* ---------- motor de tempo ---------- */
+let runId=0, playing=true, stepping=false, speed=1, stepWaiter=null, stepNo=0;
+class Cancel extends Error{}
+const frame=()=>new Promise(r=>requestAnimationFrame(r));
+const running=()=>playing||stepping;
+function guard(id){if(id!==runId)throw new Cancel();}
+async function sleep(ms,id){let t=0,last=now();while(t<ms){await frame();guard(id);const n=now();if(running())t+=(n-last)*speed;last=n;}}
+async function beat(title,text,code,id){
+  guard(id);stepNo++;
+  document.getElementById('stepno').textContent=stepNo;
+  document.getElementById('ctitle').textContent=title;
+  document.getElementById('ctext').textContent=text;
+  document.getElementById('ccode').textContent=code||'';
+  if(playing&&!stepping){await sleep(Math.max(1800,text.length*30),id);}
+  else{stepping=false;await new Promise(r=>stepWaiter=r);stepWaiter=null;guard(id);stepping=!playing;}
+}
+async function fly(path,label,id,{dur=800,lose=false,bogus=false}={}){
+  const g=el('g',{class:'pk'+(bogus?' bogus':'')},pkLayer);
+  el('circle',{r:bogus?15:13},g);tx(0,4,'',label,g);
+  const L=path.getTotalLength();let p=0,last=now();
+  try{
+    while(p<1){await frame();guard(id);const n=now();if(running())p+=(n-last)*speed/dur;last=n;
+      const pt=path.getPointAtLength(Math.min(p,1)*(lose?0.82:1)*L);
+      g.setAttribute('transform',`translate(${pt.x},${pt.y})`);
+      if(lose&&p>0.6)g.style.opacity=Math.max(0,1-(p-0.6)/0.4);}
+  }finally{g.remove();}
+  if(lose){const pt=path.getPointAtLength(0.82*L);const x=tx(pt.x,pt.y+6,'xmark','✕',pkLayer);setTimeout(()=>x.remove(),1400/speed);}
+}
+
+/* ---------- registos ---------- */
+const T0=Date.UTC(2026,9,1,10,15,0);
+function mkLine(seq,s,t){return `${seq};${s};${t.toFixed(1)};${new Date(T0+seq*3000).toISOString().slice(0,19)}`;}
+const RECS=[['S01',21.5],['S02',19.8],['S01',21.7],['S03',23.1],['S02',20.0],['S01',21.9],['S03',22.8],['S02',20.4],['S01',22.0],['S03',23.4],['S02',20.6]];
+function parse(line){const f=line.trim().split(';');if(f.length!==4||!/^\d+$/.test(f[0])||isNaN(parseFloat(f[2])))return null;return {seq:+f[0]};}
+function append(file,s){file.push({s,t:now()});}
+
+function deliver(r,line){
+  const who='R'+r.id;r.recv++;
+  const p=parse(line);
+  if(r.mode==='orig'){
+    if(!p){log(who,'Exceção: Registo mal formado — a réplica termina',true);r.up=false;r.stat='terminou com exceção';return;}
+    append(r.file,line);log(who,'Aplicado: '+line);return;
+  }
+  if(!p){log(who,'REJEITADO: '+line,true);return;}
+  const seq=p.seq;
+  if(seq<=r.last||r.held.has(seq)){log(who,'DUPLICADO: '+seq,true);return;}
+  if(seq===r.last+1){
+    append(r.file,line);r.last=seq;log(who,'Aplicado: '+line);
+    while(r.held.has(r.last+1)){const x=r.held.get(r.last+1);r.held.delete(r.last+1);append(r.file,x);r.last++;log(who,'Aplicado (estava retido): '+x);}
+    return;
+  }
+  r.held.set(seq,line);log(who,`EM ESPERA: ${seq} (falta o registo ${r.last+1})`,true);
+}
+
+async function multicast(line,id,{lossFor=[],dur=1}={}){
+  const label=line.split(';')[0];
+  await fly(pLG,label,id,{dur:650*dur});
+  log('L','Registado e enviado: '+line);
+  await Promise.all(S.reps.map((r,i)=>{
+    const lost=!r.up||lossFor.includes(r.id);
+    return fly(pGR[i],label,id,{dur:(760+i*70)*dur,lose:lost}).then(()=>{
+      if(!r.up){log('N',`R${r.id} não está à escuta: a cópia do registo ${label} é descartada`,true);return;}
+      if(lossFor.includes(r.id)){return;}
+      deliver(r,line);r.stat='receive() bloqueado';
+    });
+  }));
+}
+async function typeCLI(s,id){S.L.status='a ler da CLI';for(const c of s){S.L.cli+=c;await sleep(55,id);}await sleep(250,id);}
+async function record(id,k,opt={}){
+  const [s,t]=RECS[(k-1)%RECS.length];
+  await typeCLI(`${s} ${t.toFixed(1)}`,id);
+  const L=S.L;L.seq++;const line=mkLine(L.seq,s,t);
+  if(opt.verbose)await beat('1) Escreve localmente',`O utilizador escreveu «${s} ${t.toFixed(1)}». O líder atribui seq = ${L.seq} e acrescenta o registo a lider.txt antes de o enviar para a rede.`,'SensorRecord r = SensorRecord.now(++seq, p[0], temp);\nfile.append(r);                       // 1) escreve localmente',id);
+  append(L.file,line);L.status='a enviar';await sleep(350,id);
+  if(opt.verbose)await beat('2) Propaga para o grupo','Um único send, dirigido ao endereço de grupo. O líder não sabe quem são as réplicas nem quantas são: é a rede que entrega uma cópia a cada máquina que se juntou ao grupo.','socket.send(new DatagramPacket(m, m.length, group, PORT)); // 2) propaga',id);
+  S.reps.forEach(r=>{if(r.up)r.stat='receive() bloqueado';});
+  await multicast(line,id,opt);
+  L.cli='';L.status='hasNextLine() à espera do utilizador';
+  await sleep(300,id);
+}
+function prefill(n){
+  for(let k=1;k<=n;k++){const [s,t]=RECS[k-1];const line=mkLine(k,s,t);S.L.file.push({s:line,t:0});S.reps.forEach(r=>{r.file.push({s:line,t:0});r.last=k;});}
+  S.L.seq=n;S.L.ready=true;S.L.status='hasNextLine() à espera do utilizador';
+  S.reps.forEach(r=>{r.up=true;r.stat='receive() bloqueado';});
+}
+async function startReplicas(id){
+  for(const r of S.reps){r.up=true;r.stat='receive() bloqueado';r.last=r.file.length?r.last:0;
+    log('R'+r.id,`Réplica ${r.id} à escuta em 230.0.0.1:6789`);await sleep(300,id);}
+}
+async function startLeader(id){
+  S.L.ready=true;S.L.status='hasNextLine() à espera do utilizador';
+  log('L',"Líder pronto. Formato: <sensor> <temperatura> | 'sair' para terminar");await sleep(300,id);
+}
+function stopRep(r){r.up=false;r.stat='parada (processo terminado)';log('R'+r.id,'^C  (processo terminado)',true);}
+
+/* ---------- cenários ---------- */
+const SC={
+A:async id=>{
+  S=freshState('orig');
+  await beat('Arrancam as réplicas','Cada réplica cria um MulticastSocket no porto 6789 e junta-se ao grupo 230.0.0.1. Depois fica bloqueada em receive() à espera de um datagrama.','socket.joinGroup(group);\nsocket.receive(p);   // bloqueia até chegar um datagrama',id);
+  await startReplicas(id);
+  await beat('Arranca o líder','O líder não se junta ao grupo: só envia. Lê o último seq de lider.txt (0, porque o ficheiro ainda não existe) e fica bloqueado à espera de uma linha na CLI.','long seq = file.lastSeq();\nif (!sc.hasNextLine()) break;   // bloqueia à espera do utilizador',id);
+  await startLeader(id);
+  await record(id,1,{verbose:true});
+  await beat('Cada réplica aplica o registo','Cada réplica sai do receive(), converte a linha com fromLine() e acrescenta-a ao seu ficheiro. Volta logo a seguir ao receive().','SensorRecord r = SensorRecord.fromLine(line);\nfile.append(r);',id);
+  await beat('Mais quatro registos','O mesmo ciclo repete-se: ler da CLI, numerar, escrever em lider.txt, enviar um datagrama para o grupo.','',id);
+  for(let k=2;k<=5;k++)await record(id,k);
+  S.diff=true;
+  await beat('Comparar os ficheiros','diff lider.txt replica-n.txt: os quatro ficheiros têm as mesmas cinco linhas, pela mesma ordem.','diff lider.txt replica-1.txt',id);
+},
+B:async id=>{
+  S=freshState('orig');prefill(5);
+  await beat('Ponto de partida','Os quatro ficheiros têm os registos 1 a 5. As réplicas correm o código original do ponto 3.','',id);
+  stopRep(S.reps[1]);
+  await beat('A réplica 2 pára','R2 termina. O socket fecha e a máquina deixa de ter quem receba no porto 6789. O líder não é avisado.','',id);
+  await beat('Três registos com R2 parada','O líder continua a enviar como antes: um send por registo. A cópia destinada a R2 chega à máquina e é descartada, porque ninguém está à escuta.','',id);
+  for(let k=6;k<=8;k++)await record(id,k);
+  await beat('R2 volta a arrancar','Junta-se de novo ao grupo e fica em receive(). Os registos 6, 7 e 8 já passaram e não ficaram guardados em lado nenhum.','socket.joinGroup(group);',id);
+  S.reps[1].up=true;S.reps[1].stat='receive() bloqueado';log('R2','Réplica 2 à escuta em 230.0.0.1:6789');
+  for(let k=9;k<=10;k++)await record(id,k);
+  S.diff=true;
+  await beat('Comparar os ficheiros','replica-2.txt passa do registo 5 para o 9. Nenhum dos programas lançou exceção nem escreveu qualquer aviso.','diff lider.txt replica-2.txt',id);
+},
+C:async id=>{
+  S=freshState('seq');prefill(5);
+  await beat('Réplicas com números de sequência','As réplicas correm agora a versão do ponto 6. Guardam o último seq aplicado e mantêm em memória, ordenado por seq, o que chega fora de ordem.','long ultimo = file.lastSeq();\n// TreeMap<Long, SensorRecord> para os registos retidos',id);
+  stopRep(S.reps[1]);
+  await beat('R2 pára e perde três registos','Os registos 6, 7 e 8 são enviados enquanto R2 está parada. As cópias para R2 são descartadas.','',id);
+  for(let k=6;k<=8;k++)await record(id,k,{dur:.8});
+  const r2=S.reps[1];r2.up=true;r2.stat='receive() bloqueado';r2.last=5;
+  log('R2','Réplica 2 à escuta em 230.0.0.1:6789  (lastSeq() = 5)');
+  await beat('R2 volta a arrancar','Ao arrancar, R2 lê lastSeq() de replica-2.txt e obtém 5. Espera portanto o registo 6.','long ultimo = file.lastSeq();   // 5',id);
+  await record(id,9);
+  await beat('Chega o 9, falta o 6','seq 9 é maior do que último + 1. R2 não o escreve no ficheiro: guarda-o em memória. R1 e R3 aplicam-no normalmente.','',id);
+  await record(id,10);
+  stranger.setAttribute('opacity',1);pSG.style.opacity=1;
+  await beat('Um datagrama que não é registo','O grupo é aberto: qualquer programa pode enviar para 230.0.0.1:6789. As réplicas rejeitam a mensagem e continuam à escuta.','',id);
+  log('X','envia «ola» para 230.0.0.1:6789');
+  await fly(pSG,'?',id,{dur:600,bogus:true});
+  await Promise.all(S.reps.map((r,i)=>fly(pGR[i],'?',id,{dur:760+i*70,bogus:true}).then(()=>deliver(r,'ola'))));
+  await sleep(400,id);stranger.setAttribute('opacity',0);pSG.style.opacity=0;
+  await record(id,11);
+  S.diff=true;
+  await beat('O ficheiro de R2 parou no 5','R1 e R3 acompanham o líder. R2 continua a receber, mas tudo o que chega fica em memória à espera do registo 6, que já não vai chegar.','',id);
+},
+D:async id=>{
+  S=freshState('seq');
+  S.reps.forEach(r=>{r.up=true;r.stat='receive() bloqueado';});S.L.ready=true;S.L.status='modo de teste';
+  await beat('Teste da retenção em memória','Um modo de teste temporário no líder envia os registos 2 e 3 antes do 1. Nenhum registo se perde: só muda a ordem de envio.','',id);
+  const lines=[1,2,3].map(k=>mkLine(k,RECS[k-1][0],RECS[k-1][1]));
+  log('L','modo de teste: envia 2, 3 e só depois 1');
+  lines.forEach(l=>append(S.L.file,l));S.L.seq=3;await sleep(600,id);
+  await multicast(lines[1],id);
+  await beat('Chega o 2, falta o 1','Cada réplica tem último = 0 e esperava o 1. O 2 fica retido em memória; o ficheiro não muda.','',id);
+  await multicast(lines[2],id);
+  await beat('Chega o 3','Também fica retido. A memória está ordenada por seq: 2, 3.','',id);
+  await multicast(lines[0],id);
+  await beat('Chega o 1','As réplicas escrevem o 1 e, logo a seguir, os retidos que passaram a estar em sequência: o 2 e depois o 3. A memória fica vazia.','',id);
+  log('L','repete o envio do registo 3 (forçado, para ilustrar)');
+  await multicast(lines[2],id);
+  await beat('Um registo repetido','Se o mesmo registo chegar duas vezes (aqui forçado de propósito), seq ≤ último: a réplica ignora-o.','',id);
+  S.L.status='hasNextLine() à espera do utilizador';
+  await record(id,4);
+  S.diff=true;
+  await beat('Comparar os ficheiros','Apesar da ordem de chegada, cada ficheiro cresceu pela ordem do líder: 1, 2, 3, 4.','diff lider.txt replica-1.txt',id);
+},
+E:async id=>{
+  S=freshState('seq');
+  S.reps.forEach(r=>{r.up=true;r.stat='receive() bloqueado';});S.L.ready=true;S.L.status='hasNextLine() à espera do utilizador';
+  await beat('O comando rajada','rajada <n> gera n registos do sensor SIM, com temperaturas entre 15 e 30 °C, e envia-os sem pausas. Aqui são 24 para caberem no ecrã; no ponto 7 são 1000.','',id);
+  await typeCLI('rajada 24',id);
+  log('L','rajada 24: início do envio (System.currentTimeMillis())');
+  const loss={7:[3],15:[3],19:[2]};
+  const jobs=[];
+  for(let k=1;k<=24;k++){
+    const t=15+((k*7.3)%15);S.L.seq=k;const line=`${k};SIM;${t.toFixed(1)};${new Date(T0+3600000+k*40).toISOString().slice(0,19)}`;
+    append(S.L.file,line);
+    jobs.push((async()=>{await fly(pLG,String(k),id,{dur:380});
+      await Promise.all(S.reps.map((r,i)=>{const lost=(loss[k]||[]).includes(r.id);
+        return fly(pGR[i],String(k),id,{dur:430+i*40,lose:lost}).then(()=>{if(!lost)deliver(r,line);});}));})());
+    await sleep(110,id);
+  }
+  log('L','rajada 24: fim do envio');S.L.cli='';
+  await Promise.all(jobs);
+  S.reps.forEach(r=>log('R'+r.id,`rajada: recebidos ${r.recv} · escritos ${r.file.length} · retidos em memória ${r.held.size}`,r.held.size>0));
+  S.diff=true;
+  await beat('Contar o que chegou','Nesta encenação, duas cópias não chegaram a R3 e uma não chegou a R2. O líder enviou os 24 e não sabe de nada; são as contagens das réplicas que mostram o que faltou.','',id);
+}
+};
+
+/* ---------- controlo ---------- */
+let current='A';
+async function run(sc){
+  runId++;const id=runId;stepNo=0;stepping=false;
+  if(stepWaiter){const w=stepWaiter;stepWaiter=null;w();}
+  while(pkLayer.firstChild)pkLayer.firstChild.remove();
+  stranger.setAttribute('opacity',0);pSG.style.opacity=0;
+  logEl.textContent='';
+  S=freshState('orig');
+  try{await SC[sc](id);
+    if(id===runId){await sleep(200,id);document.getElementById('ctitle').textContent+=' · fim do cenário';}
+  }catch(e){if(!(e instanceof Cancel))console.error(e);}
+}
+const playBtn=document.getElementById('play');
+function syncPlay(){playBtn.textContent=playing?'❚❚ Pausa':'▶ Reproduzir';}
+playBtn.onclick=()=>{playing=!playing;stepping=false;if(playing&&stepWaiter)stepWaiter();syncPlay();};
+document.getElementById('step').onclick=()=>{if(playing){playing=false;syncPlay();}if(stepWaiter)stepWaiter();else stepping=true;};
+document.getElementById('restart').onclick=()=>run(current);
+document.getElementById('speed').onchange=e=>speed=parseFloat(e.target.value);
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
+  current=b.dataset.sc;document.querySelectorAll('.tab').forEach(x=>x.setAttribute('aria-pressed',x===b));run(current);});
+try{if(matchMedia('(prefers-reduced-motion: reduce)').matches)playing=false;}catch(e){}
+syncPlay();
+S=freshState('orig');
+requestAnimationFrame(loop);
+run('A');
+})();
+</script>
+
+</body></html>
