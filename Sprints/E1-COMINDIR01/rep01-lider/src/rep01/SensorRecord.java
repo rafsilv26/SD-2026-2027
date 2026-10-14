@@ -3,11 +3,10 @@ package rep01;
 import java.time.LocalDateTime;
 
 /**
- * One sensor reading shared by the leader and replica projects.
+ * Registo de leitura partilhado pelos projetos do líder e das réplicas.
  *
- * <p>The network representation is deliberately plain text rather than Java
- * object serialization, so any implementation that understands this format
- * can decode a record.</p>
+ * <p>A rede transporta texto simples, não objetos Java serializados. Qualquer
+ * programa que conheça este formato consegue interpretar o registo.</p>
  */
 public class SensorRecord {
     private final long seq;
@@ -22,21 +21,21 @@ public class SensorRecord {
         this.timestamp = timestamp;
     }
 
-    /** Creates a record timestamped at whole-second precision for the leader. */
+    /** Cria um registo com o instante atual, arredondado ao segundo. */
     public static SensorRecord now(long seq, String sensorId, double temperature) {
         return new SensorRecord(seq, sensorId, temperature,
                 LocalDateTime.now().withNano(0).toString());
     }
 
-    /** Uses the shared wire/file format: seq;sensor;temperature;timestamp. */
+    /** Produz o formato comum usado na rede e nos ficheiros. */
     public String toLine() {
         return seq + ";" + sensorId + ";" + temperature + ";" + timestamp;
     }
 
     /**
-     * Reconstructs a record from the shared text format.
-     * Invalid field counts or numeric values are rejected rather than silently
-     * producing a partially interpreted record.
+     * Reconstrói um registo a partir do formato textual comum.
+     * Rejeita campos em falta ou valores numéricos inválidos, em vez de criar
+     * silenciosamente um registo interpretado apenas em parte.
      */
     public static SensorRecord fromLine(String line) {
         String[] fields = line.trim().split(";", -1);

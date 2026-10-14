@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Scanner;
 import java.util.concurrent.ThreadLocalRandom;
 
-/** Leader that stores each reading locally and sends one UDP multicast datagram. */
+/** Líder que guarda cada leitura localmente e envia um datagrama multicast UDP. */
 public class MulticastLeader {
     static final String GROUP = "230.0.0.1";
     static final int PORT = 6789;
@@ -17,16 +17,16 @@ public class MulticastLeader {
         try (MulticastSocket socket = new MulticastSocket();
              Scanner scanner = new Scanner(System.in)) {
             InetAddress group = InetAddress.getByName(GROUP);
-            socket.setTimeToLive(1); // Limit multicast forwarding to the local network.
+            socket.setTimeToLive(1); // Limita o encaminhamento multicast à rede local.
 
             RecordFile file = new RecordFile("lider.txt");
-            long seq = file.lastSeq(); // Persisted sequence prevents reuse after restart.
+            long seq = file.lastSeq(); // Evita reutilizar sequências após reiniciar.
             System.out.println("Líder pronto. Formato: <sensor> <temperatura> | "
                     + "rajada <n> | sair");
 
             while (true) {
                 System.out.print("> ");
-                if (!scanner.hasNextLine()) { // Blocks until the user enters a command.
+                if (!scanner.hasNextLine()) { // Bloqueia até o utilizador escrever um comando.
                     break;
                 }
 
@@ -55,7 +55,7 @@ public class MulticastLeader {
                         double temperature = 15.0
                                 + ThreadLocalRandom.current().nextDouble() * 15.0;
                         SensorRecord record = SensorRecord.now(++seq, "SIM", temperature);
-                        file.append(record); // The leader persists before propagating.
+                        file.append(record); // Persiste localmente antes de propagar.
                         long sendAt = send(socket, group, record);
                         if (i == 0) {
                             firstSendAt = sendAt;
@@ -83,7 +83,7 @@ public class MulticastLeader {
                 }
 
                 SensorRecord record = SensorRecord.now(++seq, parts[0], temperature);
-                file.append(record); // Persist first; UDP send has no delivery acknowledgement.
+                file.append(record); // Persiste primeiro; UDP não confirma a entrega.
                 send(socket, group, record);
                 System.out.println("Registado e enviado: " + record.toLine());
             }
@@ -93,9 +93,9 @@ public class MulticastLeader {
     }
 
     /**
-     * Converts the record to UTF-8 text and sends a single datagram to the
-     * group. The timestamp is taken immediately before send; this does not
-     * mean any replica has received or persisted the datagram.
+     * Converte o registo em texto UTF-8 e envia um único datagrama ao grupo.
+     * O instante é recolhido imediatamente antes do envio; não significa que
+     * alguma réplica recebeu ou guardou o datagrama.
      */
     private static long send(MulticastSocket socket, InetAddress group,
                              SensorRecord record) throws IOException {

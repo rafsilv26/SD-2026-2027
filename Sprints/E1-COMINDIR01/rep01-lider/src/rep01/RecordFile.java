@@ -7,7 +7,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 
-/** Small persistence helper; each program writes only to its own local file. */
+/** Auxiliar de persistência: cada programa escreve apenas no seu ficheiro local. */
 public class RecordFile {
     private final Path path;
 
@@ -15,7 +15,7 @@ public class RecordFile {
         this.path = Paths.get(fileName);
     }
 
-    /** Appends one complete record line, creating the file on first use. */
+    /** Acrescenta uma linha completa e cria o ficheiro se ainda não existir. */
     public synchronized void append(SensorRecord record) throws IOException {
         Files.writeString(path, record.toLine() + System.lineSeparator(),
                 StandardCharsets.UTF_8,
@@ -24,8 +24,8 @@ public class RecordFile {
     }
 
     /**
-     * Reads the last persisted sequence so a restarted process does not start
-     * numbering again from zero. An empty or missing file has sequence zero.
+     * Lê a última sequência persistida para o processo continuar a numeração
+     * após reiniciar. Um ficheiro vazio ou inexistente corresponde à sequência zero.
      */
     public synchronized long lastSeq() throws IOException {
         if (!Files.exists(path)) {

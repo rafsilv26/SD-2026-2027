@@ -9,7 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.TreeMap;
 
-/** Multicast replica that writes only a contiguous prefix of the leader's log. */
+/** Réplica multicast que escreve apenas um prefixo contínuo do registo do líder. */
 public class MulticastReplica {
     static final String GROUP = "230.0.0.1";
     static final int PORT = 6789;
@@ -29,7 +29,7 @@ public class MulticastReplica {
 
     private static void runReceiver(String id, RecordFile file, long lastApplied)
             throws IOException {
-        // MulticastSocket enables address reuse for multicast receivers sharing a port.
+        // Permite que várias réplicas multicast escutem no mesmo porto.
         try (MulticastSocket socket = new MulticastSocket(PORT)) {
             InetAddress group = InetAddress.getByName(GROUP);
             socket.joinGroup(group);
@@ -43,7 +43,7 @@ public class MulticastReplica {
                 byte[] buffer = new byte[1000];
                 DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                 try {
-                    socket.receive(packet); // Blocks for a datagram, or times out to close burst statistics.
+                    socket.receive(packet); // Aguarda um datagrama; o timeout fecha as métricas da rajada.
                 } catch (SocketTimeoutException e) {
                     metrics.printAndReset(pending.size());
                     continue;
@@ -54,7 +54,7 @@ public class MulticastReplica {
                         StandardCharsets.UTF_8);
                 SensorRecord record;
                 try {
-                    // This is the trust boundary: received text is not assumed to be a valid record.
+                    // A entrada da rede não é considerada válida antes desta análise.
                     record = SensorRecord.fromLine(line);
                 } catch (IllegalArgumentException e) {
                     System.out.println("REJEITADO: " + line);
@@ -68,9 +68,9 @@ public class MulticastReplica {
     }
 
     /**
-     * Applies only the next expected sequence. Future records wait in memory
-     * until every gap before them has arrived; this detects gaps but cannot
-     * recover datagrams that were permanently lost.
+     * Aplica apenas a próxima sequência esperada. Registos futuros ficam em
+     * memória até chegarem os anteriores; isto deteta lacunas, mas não recupera
+     * datagramas perdidos definitivamente.
      */
     private static long apply(SensorRecord record, long lastApplied,
                               Map<Long, SensorRecord> pending, RecordFile file,
@@ -107,9 +107,9 @@ public class MulticastReplica {
     }
 
     /**
-     * A burst has ended after 1.5 seconds without a datagram. Since messages
-     * carry no burst identifier, this is an operational boundary for measuring,
-     * not a property guaranteed by multicast.
+     * Considera a rajada terminada após 1,5 segundos sem datagramas. Como as
+     * mensagens não têm identificador de rajada, é apenas um limite de medição,
+     * não uma garantia do multicast.
      */
     private static final class BurstMetrics {
         private long firstReceivedAt;
