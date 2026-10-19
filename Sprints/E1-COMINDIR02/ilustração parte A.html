@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Recuperação por TCP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout igual ao da COMINDIR01: narração, palco SVG (produtor → nó → líder → nó → réplicas, e TCP réplica → líder), inspetor, consolas */
+:root{
+  --bg:#ecf0f3; --panel:#ffffff; --ink:#17202b; --muted:#5b6876; --line:#c5ced8;
+  --prod:#4f6b16; --leader:#2a54b5; --net:#b06a0a; --rep:#17786b; --node:#6a45a8; --node-soft:#efe8f8;
+  --tcp:#b0306f; --tcp-soft:#f9e3ee; --bad:#b5372c; --chip:#f7e6c8; --chip-ink:#6b4100;
+  --cli:#1d2733; --cli-ink:#d9e4ee; --soft:#f5f7f9;
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#10151b; --panel:#19212a; --ink:#e2e8ee; --muted:#92a0ae; --line:#33404d;
+  --prod:#a9c46a; --leader:#86a6f2; --net:#e3a44c; --rep:#52c2b0; --node:#b393ea; --node-soft:#2a2238;
+  --tcp:#f07fb5; --tcp-soft:#3a1f2d; --bad:#f07f73; --chip:#4a3a1e; --chip-ink:#f6d9a6;
+  --cli:#0b0f14; --cli-ink:#d9e4ee; --soft:#141b22; color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:#10151b; --panel:#19212a; --ink:#e2e8ee; --muted:#92a0ae; --line:#33404d;
+  --prod:#a9c46a; --leader:#86a6f2; --net:#e3a44c; --rep:#52c2b0; --node:#b393ea; --node-soft:#2a2238;
+  --tcp:#f07fb5; --tcp-soft:#3a1f2d; --bad:#f07f73; --chip:#4a3a1e; --chip-ink:#f6d9a6;
+  --cli:#0b0f14; --cli-ink:#d9e4ee; --soft:#141b22; color-scheme:dark }
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5}
+.wrap{max-width:1120px;margin:0 auto;padding-inline:16px;padding-block:28px 48px;display:grid;gap:18px}
+header{display:grid;gap:6px}
+.eyebrow{font-family:var(--f-mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--f-display);font-weight:700;font-size:clamp(28px,4.5vw,42px);line-height:1.05;margin:0;text-wrap:balance}
+h1 span{color:var(--tcp)}
+.lede{margin:0;max-width:72ch;color:var(--muted)}
+.tabs{display:flex;flex-wrap:wrap;gap:8px}
+.tab{font:500 14px/1.2 var(--f-body);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 14px;cursor:pointer;display:flex;gap:8px;align-items:baseline}
+.tab small{font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+.tab[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.tab[aria-pressed="true"] small{color:var(--bg);opacity:.75}
+.tab:focus-visible,.btn:focus-visible,select:focus-visible{outline:2px solid var(--node);outline-offset:2px}
+.bench{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.caption{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;padding:16px 18px;border-bottom:1px solid var(--line);min-height:128px}
+.stepno{font-family:var(--f-display);font-weight:700;font-size:34px;line-height:1;color:var(--tcp);grid-row:span 3;font-variant-numeric:tabular-nums;min-width:2ch}
+.ctitle{font-family:var(--f-display);font-weight:600;font-size:20px;margin:0;text-wrap:balance}
+.ctext{margin:0;max-width:78ch;min-width:0}
+.ccode{font-family:var(--f-mono);font-size:12.5px;background:var(--soft);border:1px solid var(--line);border-radius:6px;padding:4px 8px;justify-self:start;max-width:100%;overflow-x:auto;white-space:pre;margin-top:4px}
+.ccode:empty{display:none}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--soft)}
+.btn{font:500 14px/1 var(--f-body);background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:9px 14px;cursor:pointer}
+.btn.primary{background:var(--leader);color:var(--panel);border-color:var(--leader)}
+.controls label{font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center;margin-left:auto}
+select{font:14px var(--f-body);background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px}
+.stagewrap{overflow-x:auto}
+#stage{display:block;width:100%;min-width:680px;height:auto}
+.inspector{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid var(--line)}
+.inspector div{padding:12px 16px;min-width:0;border-right:1px solid var(--line)}
+.inspector div:last-child{border-right:0}
+.inspector h3{margin:0 0 4px;font:600 12px var(--f-body);letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.inspector pre{margin:0;font:11.5px/1.5 var(--f-mono);white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink)}
+@media (max-width:760px){.inspector{grid-template-columns:1fr}.inspector div{border-right:0;border-bottom:1px solid var(--line)}}
+/* SVG */
+.box{fill:var(--panel);stroke:var(--line);stroke-width:1.2}
+.hdr-l{fill:var(--leader)} .hdr-r{fill:var(--rep)} .hdr-n{fill:var(--node)} .hdr-p{fill:var(--prod)} .hdr-off{fill:var(--muted)}
+.hdrtxt{fill:var(--panel);font:600 13px var(--f-display);letter-spacing:.02em}
+.sub{fill:var(--muted);font:11px var(--f-mono)}
+.sub.tcpc{fill:var(--tcp);font-weight:600}
+.lbl{fill:var(--ink);font:500 12px var(--f-body)}
+.mono{fill:var(--ink);font:10.5px var(--f-mono)}
+.mono.fresh{fill:var(--rep);font-weight:600}
+.mono.fresh-l{fill:var(--leader);font-weight:600}
+.mono.fresh-t{fill:var(--tcp);font-weight:600}
+.nline{fill:var(--ink);font:10.5px var(--f-mono)}
+.nline.off{fill:var(--muted)}
+.clibg{fill:var(--cli)}
+.clitxt{fill:var(--cli-ink);font:12px var(--f-mono)}
+.badge-ok{fill:var(--panel);font:600 11px var(--f-mono)}
+.badge-bad{fill:#fff;font:600 11px var(--f-mono)}
+.badge-bad-bg{fill:var(--bad)}
+.link{fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:4 5}
+.stream{fill:none;stroke:var(--rep);stroke-width:2.2}
+.stream-l{fill:none;stroke:var(--leader);stroke-width:2.2}
+.http{fill:none;stroke:var(--prod);stroke-width:2;stroke-dasharray:2 4}
+.http-l{fill:none;stroke:var(--leader);stroke-width:2;stroke-dasharray:2 4}
+.tcp{fill:none;stroke:var(--tcp);stroke-width:1.6;stroke-dasharray:6 5;opacity:.35}
+.tcp.on{stroke-width:2.8;stroke-dasharray:none;opacity:1}
+.tcptxt{fill:var(--tcp);font:600 11px var(--f-display);letter-spacing:.05em}
+.port{fill:var(--tcp-soft);stroke:var(--tcp);stroke-width:1.5}
+.chip{fill:var(--chip);stroke:var(--net);stroke-width:1}
+.chiptxt{fill:var(--chip-ink);font:600 10px var(--f-mono)}
+.down rect.box{stroke-dasharray:5 4;opacity:.7}
+.status{font:500 11.5px var(--f-body);fill:var(--muted)}
+.status.bad{fill:var(--bad)}
+.status.busy{fill:var(--tcp);font-weight:600}
+.pk circle{fill:var(--net);stroke:var(--panel);stroke-width:2}
+.pk text{fill:#fff;font:600 10.5px var(--f-mono);text-anchor:middle}
+.pill rect{fill:var(--prod);stroke:var(--panel);stroke-width:2}
+.pill text{fill:var(--panel);font:600 10.5px var(--f-mono);text-anchor:middle}
+.reg rect{fill:var(--leader);stroke:var(--panel);stroke-width:2}
+.reg text{fill:var(--panel);font:600 10.5px var(--f-mono);text-anchor:middle}
+.sreq rect{fill:var(--rep);stroke:var(--panel);stroke-width:2}
+.sreq text{fill:var(--panel);font:600 10.5px var(--f-mono);text-anchor:middle}
+.tcpq rect{fill:var(--tcp);stroke:var(--panel);stroke-width:2}
+.tcpq text{fill:var(--panel);font:600 10.5px var(--f-mono);text-anchor:middle}
+.tcpr rect{fill:var(--panel);stroke:var(--tcp);stroke-width:1.8}
+.tcpr text{fill:var(--tcp);font:600 10.5px var(--f-mono);text-anchor:middle}
+.fade{transition:opacity .4s}
+/* consolas */
+.logs{display:grid;gap:8px}
+.logs h2{font-family:var(--f-display);font-weight:600;font-size:16px;margin:0;display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.logs h2 span{font:12px var(--f-body);color:var(--muted)}
+#log{list-style:none;margin:0;padding:10px 0;background:var(--cli);color:var(--cli-ink);border-radius:10px;font:12.5px/1.55 var(--f-mono);height:240px;overflow:auto}
+#log li{display:grid;grid-template-columns:62px 1fr;gap:8px;padding:0 14px}
+#log li span{min-width:0;overflow-wrap:anywhere}
+#log b{font-weight:600}
+.t-P{color:#c3dc8c}.t-L{color:#8fb0ff}.t-R{color:#6fd6c4}.t-N{color:#c8a8ff}
+#log li.warn span{color:#ffb1a8}
+#log li.cmd span{color:#f2d58a}
+#log li.tcp span{color:#ff9fcb}
+.legend{display:flex;flex-wrap:wrap;gap:14px 22px;font-size:13px;color:var(--muted);margin:0;padding:0;list-style:none}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+.foot{font-size:13px;color:var(--muted);max-width:80ch;margin:0}
+@media (max-width:560px){ .caption{grid-template-columns:1fr} .stepno{grid-row:auto;font-size:26px} .controls label{margin-left:0} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Sistemas Distribuídos · COMINDIR02 · 4.1 Parte A</div>
+    <h1>Recuperação de registos perdidos <span>por TCP</span></h1>
+    <p class="lede">Uma só partição. O produtor publica leituras no tópico de entrada, o líder numera-as, escreve-as no seu ficheiro e propaga-as com o seu endereço. Quando uma réplica tem mais de dez registos retidos, liga-se ao líder por TCP e pede os que lhe faltam.</p>
+  </header>
+
+  <nav class="tabs" aria-label="Cenários">
+    <button class="tab" data-sc="A" aria-pressed="true">Cinco leituras <small>ponto 6 · a</small></button>
+    <button class="tab" data-sc="B" aria-pressed="false">Réplica parada <small>ponto 6 · b</small></button>
+    <button class="tab" data-sc="C" aria-pressed="false">Registo descartado <small>ponto 6 · c</small></button>
+    <button class="tab" data-sc="D" aria-pressed="false">Rajada com perdas <small>ponto 6 · d</small></button>
+    <button class="tab" data-sc="E" aria-pressed="false">Réplica sem histórico <small>ponto 6 · e</small></button>
+  </nav>
+
+  <section class="bench" aria-label="Animação">
+    <div class="caption" aria-live="polite">
+      <div class="stepno" id="stepno">1</div>
+      <h2 class="ctitle" id="ctitle">A preparar</h2>
+      <p class="ctext" id="ctext">A animação está a carregar.</p>
+      <div class="ccode" id="ccode"></div>
+    </div>
+    <div class="controls">
+      <button class="btn primary" id="play">❚❚ Pausa</button>
+      <button class="btn" id="step">Próximo passo ›</button>
+      <button class="btn" id="restart">↺ Recomeçar</button>
+      <label for="speed">Velocidade
+        <select id="speed"><option value="0.5">0,5×</option><option value="1" selected>1×</option><option value="1.6">1,6×</option><option value="2.5">2,5×</option></select>
+      </label>
+    </div>
+    <div class="stagewrap">
+      <svg id="stage" viewBox="0 0 900 458" role="img" aria-label="Produtor, líder da partição 0, daemon Kubo e três réplicas; as réplicas ligam-se ao porto 7000 do líder por TCP para recuperar registos"></svg>
+    </div>
+    <div class="inspector" aria-label="Última mensagem">
+      <div><h3>Última mensagem no PubSub</h3><pre id="insMsg">—</pre></div>
+      <div><h3>Ligação TCP de recuperação</h3><pre id="insTcp">—</pre></div>
+      <div><h3>Regra aplicada na réplica</h3><pre id="insRule">—</pre></div>
+    </div>
+  </section>
+
+  <section class="logs">
+    <h2>Consolas <span>o que cada programa ou comando escreve no terminal</span></h2>
+    <ul id="log"></ul>
+  </section>
+
+  <ul class="legend">
+    <li><i style="background:var(--prod)"></i>Produtor e mensagem IN</li>
+    <li><i style="background:var(--leader)"></i>Líder da partição 0 e mensagem REG</li>
+    <li><i style="background:var(--node)"></i>Daemon Kubo</li>
+    <li><i style="background:var(--net)"></i>REG entregue a uma réplica</li>
+    <li><i style="background:var(--rep)"></i>Réplica e o seu pedido /pubsub/sub</li>
+    <li><i style="background:var(--tcp)"></i>Ligação TCP de recuperação (porto 7000)</li>
+    <li><i style="background:var(--chip);border:1px solid var(--net)"></i>Registo retido em memória</li>
+    <li><i style="background:var(--bad)"></i>Divergência</li>
+  </ul>
+  <p class="foot">A animação ilustra o comportamento descrito na ficha. Nos ficheiros desenhados, o instante aparece abreviado (só a hora). Os tempos, as perdas e as contagens são encenados com um gerador pseudoaleatório fixo, não são medições: os valores reais são os que cada aluno regista nos pontos 6 e 16.</p>
+</div>
+
+<script>
+(function(){
+const NS='http://www.w3.org/2000/svg';
+const svg=document.getElementById('stage');
+function el(tag,attrs,parent){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);(parent||svg).appendChild(e);return e;}
+function tx(x,y,cls,s,parent,anchor){const t=el('text',{x,y,class:cls},parent);if(anchor)t.setAttribute('text-anchor',anchor);t.textContent=s||'';return t;}
+
+const LIMITE=10, ADDR='127.0.0.1', PORT=7000;
+
+/* ---------- palco ---------- */
+const RY=[16,161,306];
+const links=el('g',{});
+const pPN=el('path',{d:'M210 90 C 255 90, 255 160, 300 160',class:'http'},links);
+const pNL=el('path',{d:'M300 222 C 255 222, 255 240, 210 240',class:'link'},links);
+const pLN=el('path',{d:'M210 262 C 255 262, 255 250, 300 250',class:'http-l'},links);
+const pNR=RY.map(y=>el('path',{d:`M500 215 C 585 215, 575 ${y+67} 660 ${y+67}`,class:'link'},links));
+const pTCP=RY.map(y=>el('path',{d:`M660 ${y+118} C 610 ${y+118}, 615 438, 555 438 L 262 438 C 232 438, 232 410, 212 410`,class:'tcp'},links));
+tx(255,118,'sub','HTTP',links,'middle');
+tx(400,453,'tcptxt','TCP · PEDIDO <de> <até> → registos → FIM',links,'middle');
+
+// produtor
+const Pg=el('g',{});
+el('rect',{x:20,y:20,width:190,height:140,rx:10,class:'box'},Pg);
+el('path',{d:'M20 30 a10 10 0 0 1 10 -10 h170 a10 10 0 0 1 10 10 v16 h-190 z',class:'hdr-p'},Pg);
+tx(32,38,'hdrtxt','Producer',Pg);
+el('rect',{x:30,y:56,width:170,height:32,rx:5,class:'clibg'},Pg);
+const Pcli=tx(38,77,'clitxt','',Pg);
+const Pstat=tx(30,110,'status','',Pg);
+const Pcount=tx(30,128,'lbl','',Pg);
+tx(30,148,'sub','publica em rep02-in-p0',Pg);
+
+// líder
+const Lg=el('g',{class:'fade'});
+el('rect',{x:20,y:186,width:190,height:258,rx:10,class:'box'},Lg);
+const Lhdr=el('path',{d:'M20 196 a10 10 0 0 1 10 -10 h170 a10 10 0 0 1 10 10 v16 h-190 z',class:'hdr-l'},Lg);
+tx(32,204,'hdrtxt','PartitionLeader 0 1',Lg);
+const Lseq=tx(30,230,'lbl','',Lg);
+tx(200,230,'sub tcpc',ADDR+':'+PORT,Lg,'end');
+const Lin=tx(30,247,'status','',Lg);
+el('line',{x1:30,y1:272,x2:200,y2:272,stroke:'var(--line)'},Lg);
+const Lfh=tx(30,268,'sub','',Lg);
+const Llines=[];for(let i=0;i<7;i++)Llines.push(tx(30,288+i*14,'mono','',Lg));
+el('line',{x1:30,y1:392,x2:200,y2:392,stroke:'var(--line)'},Lg);
+el('circle',{cx:210,cy:410,r:6,class:'port'},Lg);
+tx(30,408,'sub tcpc','ServerSocket :7000',Lg);
+const Lsrv=tx(30,428,'status','',Lg);
+
+// nó
+const Ng=el('g',{class:'fade'});
+el('rect',{x:300,y:120,width:200,height:190,rx:10,class:'box'},Ng);
+const Nhdr=el('path',{d:'M300 130 a10 10 0 0 1 10 -10 h180 a10 10 0 0 1 10 10 v16 h-200 z',class:'hdr-n'},Ng);
+tx(312,138,'hdrtxt','daemon Kubo · API 5001',Ng);
+const Nlines=[0,1,2,3,4,5,6].map(k=>tx(312,166+k*18,'nline','',Ng));
+
+// réplicas
+const R=RY.map((y,i)=>{
+  const g=el('g',{class:'fade'});
+  el('rect',{x:660,y,width:228,height:138,rx:10,class:'box'},g);
+  const hdr=el('path',{d:`M660 ${y+10} a10 10 0 0 1 10 -10 h208 a10 10 0 0 1 10 10 v16 h-228 z`,class:'hdr-r'},g);
+  tx(672,y+18,'hdrtxt',`PartitionReplica ${i+1} 0`,g);
+  const badgeBg=el('rect',{x:800,y:y+5,width:82,height:17,rx:8.5,class:'badge-bad-bg',opacity:0},g);
+  const badge=tx(841,y+18,'badge-ok','',g,'middle');
+  const stat=tx(672,y+42,'status','',g);
+  const last=tx(878,y+42,'sub','',g,'end');
+  const addr=tx(672,y+58,'sub','',g);
+  const conns=tx(878,y+58,'sub tcpc','',g,'end');
+  const heldLbl=tx(672,y+78,'sub','',g);
+  const chips=el('g',{},g);
+  const fh=tx(672,y+97,'sub','',g);
+  const lines=[0,1,2].map(k=>tx(672,y+110+k*12,'mono','',g));
+  return {g,hdr,badge,badgeBg,stat,last,addr,conns,heldLbl,chips,fh,lines,y};
+});
+const pkLayer=el('g',{});
+
+/* ---------- estado ---------- */
+let S=null;
+function freshState(){
+  return {diff:false,
+    P:{cli:'',status:'',ready:false,count:0},
+    N:{up:true,msgs:0},
+    L:{up:false,seq:0,file:[],status:'parado',srv:'—',busy:false},
+    reps:[1,2,3].map(id=>({id,sub:false,last:0,file:[],held:new Map(),addr:null,stat:'parada',q:0,busy:false,
+      chain:Promise.resolve(),conns:0,recovered:0,perda:0,descartar:null,drops:0}))};
+}
+const now=()=>performance.now();
+const short=s=>s.replace(/;\d{4}-\d\d-\d\dT/,';');
+const seqOf=s=>+s.split(';')[0];
+function render(){
+  if(!S)return;
+  const t=now(),P=S.P,L=S.L;
+  const c='> '+P.cli;
+  Pcli.textContent=(c.length>24?'…'+c.slice(-23):c)+((Math.floor(t/500)%2&&P.ready)?'▌':'');
+  Pstat.textContent=P.ready?P.status:'(ainda não arrancou)';
+  Pcount.textContent=P.ready?'IN publicadas: '+P.count:'';
+  Lg.setAttribute('opacity',1);Lg.setAttribute('class','fade'+(L.up?'':' down'));
+  Lhdr.setAttribute('class',L.up?'hdr-l':'hdr-off');
+  Lseq.textContent='seq = '+L.seq;
+  Lin.textContent='entrada: '+L.status;Lin.setAttribute('class','status'+(L.up?'':' bad'));
+  Lfh.textContent='lider-p0.txt · '+L.file.length+(L.file.length===1?' linha':' linhas');
+  const lf=L.file.slice(-7);
+  Llines.forEach((e,i)=>{const r=lf[i];e.textContent=r?short(r.s):'';e.setAttribute('class','mono'+(r&&t-r.t<1600?' fresh-l':''));});
+  Lsrv.textContent=L.srv;Lsrv.setAttribute('class','status'+(L.busy?' busy':''));
+  const subs=S.reps.filter(r=>r.sub).map(r=>'R'+r.id);
+  [['rep02-in-p0',false],['  subscritor: '+(L.up?'líder 0':'—'),!L.up],['rep02-p0',false],['  subscritores: '+(subs.length?subs.join(' '):'—'),!subs.length],
+   ['',false],['mensagens tratadas: '+S.N.msgs,false],['',false]]
+   .forEach(([s,off],k)=>{Nlines[k].textContent=s;Nlines[k].setAttribute('class','nline'+(off?' off':''));});
+  pNL.setAttribute('class',L.up?'stream-l':'link');
+  S.reps.forEach((r,i)=>{
+    const v=R[i];
+    v.g.setAttribute('class','fade'+(r.sub?'':' down'));
+    v.hdr.setAttribute('class',r.sub?'hdr-r':'hdr-off');
+    v.stat.textContent=r.stat+(r.q?' · por ler: '+r.q:'');
+    v.stat.setAttribute('class','status'+(!r.sub?' bad':r.busy?' busy':''));
+    v.last.textContent=r.sub?'último = '+r.last:'';
+    v.addr.textContent='líder: '+(r.addr||'desconhecido');
+    v.conns.textContent=r.conns?'TCP ×'+r.conns:'';
+    v.fh.textContent='replica-'+r.id+'-p0.txt · '+r.file.length+(r.file.length===1?' linha':' linhas');
+    const ff=r.file.slice(-3);
+    v.lines.forEach((e,k)=>{const x=ff[k];e.textContent=x?short(x.s):'';e.setAttribute('class','mono'+(x&&t-x.t<1600?(x.tcp?' fresh-t':' fresh'):''));});
+    pNR[i].setAttribute('class',r.sub?'stream':'link');
+    if(S.diff){
+      const same=r.file.length===L.file.length&&r.file.every((x,k)=>x.s===L.file[k].s);
+      v.badge.textContent=same?'= líder':'≠ líder';v.badge.setAttribute('class',same?'badge-ok':'badge-bad');v.badgeBg.setAttribute('opacity',same?0:1);
+    }else{v.badge.textContent='';v.badgeBg.setAttribute('opacity',0);}
+    while(v.chips.firstChild)v.chips.firstChild.remove();
+    const keys=[...r.held.keys()].sort((a,b)=>a-b);
+    v.heldLbl.textContent=keys.length?`retidos ${keys.length}${keys.length>LIMITE?' > ':' / '}${LIMITE}`:'retidos 0';
+    v.heldLbl.setAttribute('class','sub'+(keys.length>LIMITE?' tcpc':''));
+    keys.slice(0,5).forEach((k,j)=>{const x=752+j*21;el('rect',{x,y:v.y+67,width:19,height:15,rx:4,class:'chip'},v.chips);tx(x+9.5,v.y+78,'chiptxt',String(k),v.chips,'middle');});
+    if(keys.length>5)tx(752+5*21+1,v.y+78,'chiptxt','…'+keys[keys.length-1],v.chips);
+  });
+}
+function loop(){try{render();}catch(e){console.error(e);}requestAnimationFrame(loop);}
+
+/* ---------- consolas e inspetor ---------- */
+const logEl=document.getElementById('log');
+const TAG={P:['PROD','t-P'],L:['LÍDER','t-L'],R1:['R1','t-R'],R2:['R2','t-R'],R3:['R3','t-R'],N:['NÓ','t-N']};
+function log(who,msg,kind){
+  const li=document.createElement('li');if(kind)li.className=kind;
+  const b=document.createElement('b');b.className=TAG[who][1];b.textContent=TAG[who][0];
+  const s=document.createElement('span');s.textContent=msg;li.append(b,s);logEl.append(li);
+  while(logEl.children.length>500)logEl.firstChild.remove();
+  logEl.scrollTop=logEl.scrollHeight;
+}
+const insMsg=document.getElementById('insMsg'),insTcp=document.getElementById('insTcp'),insRule=document.getElementById('insRule');
+const setMsg=s=>insMsg.textContent=s, setTcp=s=>insTcp.textContent=s, setRule=s=>insRule.textContent=s;
+
+/* ---------- motor de tempo ---------- */
+let runId=0,playing=true,stepping=false,speed=1,stepWaiter=null,stepNo=0;
+class Cancel extends Error{}
+const frame=()=>new Promise(r=>requestAnimationFrame(r));
+const running=()=>playing||stepping;
+function guard(id){if(id!==runId)throw new Cancel();}
+async function sleep(ms,id){let t=0,last=now();while(t<ms){await frame();guard(id);const n=now();if(running())t+=(n-last)*speed;last=n;}}
+async function beat(title,text,code,id){
+  guard(id);stepNo++;
+  document.getElementById('stepno').textContent=stepNo;
+  document.getElementById('ctitle').textContent=title;
+  document.getElementById('ctext').textContent=text;
+  document.getElementById('ccode').textContent=code||'';
+  if(playing&&!stepping){await sleep(Math.max(1900,text.length*32),id);}
+  else{stepping=false;await new Promise(r=>stepWaiter=r);stepWaiter=null;guard(id);stepping=!playing;}
+}
+async function fly(path,label,id,{dur=800,kind='pk',reverse=false}={}){
+  const g=el('g',{class:kind},pkLayer);
+  if(kind==='pk')el('circle',{r:12},g);
+  else{const w=Math.max(30,label.length*6.6+14);el('rect',{x:-w/2,y:-10,width:w,height:20,rx:10},g);}
+  tx(0,4,'',label,g);
+  const L=path.getTotalLength();let p=0,last=now();
+  try{while(p<1){await frame();guard(id);const n=now();if(running())p+=(n-last)*speed/dur;last=n;
+      const f=Math.min(p,1);const pt=path.getPointAtLength((reverse?1-f:f)*L);g.setAttribute('transform',`translate(${pt.x},${pt.y})`);}}
+  finally{g.remove();}
+}
+const pend=new Set();
+function track(p){const q=p.catch(e=>{if(!(e instanceof Cancel))console.error(e);});pend.add(q);q.then(()=>pend.delete(q));return p;}
+async function settle(id){
+  for(;;){await Promise.all([...pend,...S.reps.map(r=>r.chain)]);guard(id);await frame();guard(id);
+    if(!pend.size&&S.reps.every(r=>!r.q&&!r.busy))return;}
+}
+
+/* ---------- registos ---------- */
+const T0=Date.UTC(2026,9,1,10,15,0);
+let tick=0;
+function mkLine(seq,s,t){tick++;return `${seq};${s};${t.toFixed(1)};${new Date(T0+tick*3000).toISOString().slice(0,19)}`;}
+const RECS=[['S01',21.5],['S02',19.8],['S01',21.7],['S03',23.1],['S02',20.0],['S01',21.9],['S03',22.8],['S02',20.4],['S01',22.0],['S03',23.4],['S02',20.6]];
+function mulberry(seed){let a=seed;return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+let rnd=mulberry(7),rndLoss=mulberry(3);   // fontes separadas: produtor e perdas simuladas
+function append(file,s,tcp){file.push({s,t:now(),tcp:!!tcp});}
+
+/* ---------- réplica: thread de subscrição ---------- */
+function arrive(r,rec,id){
+  r.q++;
+  r.chain=r.chain.then(async()=>{r.q--;guard(id);if(!r.sub)return;await onReg(r,rec,id);})
+    .catch(e=>{if(!(e instanceof Cancel))console.error(e);});
+}
+function drain(r,who,quiet){
+  while(r.held.has(r.last+1)){const x=r.held.get(r.last+1);r.held.delete(r.last+1);append(r.file,x);r.last++;if(!quiet)log(who,'Aplicado (estava retido): '+x);}
+}
+async function onReg(r,rec,id){
+  const who='R'+r.id,seq=rec.seq,q=S.quiet;
+  if(r.descartar===seq){r.descartar=null;r.drops++;log(who,'DESCARTADO (simulação): '+seq,'warn');setRule(`R${r.id} · REG ${seq}\n→ descartado antes de ser aplicado\n  (-Ddescartar=${seq})`);return;}
+  if(r.perda&&rndLoss()<r.perda){r.drops++;log(who,'DESCARTADO (simulação): '+seq,'warn');return;}
+  r.addr=rec.addr+':'+rec.port;
+  if(seq<=r.last||r.held.has(seq)){log(who,'DUPLICADO: '+seq,'warn');setRule(`R${r.id} · REG ${seq}\nseq ≤ último (${r.last}) ou já retido\n→ ignora (duplicado)`);}
+  else if(seq===r.last+1){append(r.file,rec.line);r.last=seq;if(!q)log(who,'Aplicado: '+rec.line);
+    const before=r.held.size;drain(r,who,q);
+    setRule(`R${r.id} · REG ${seq}\nseq = último + 1\n→ escreve no ficheiro`+(before?`\n→ e escreve ${before-r.held.size} retidos`:''));}
+  else{r.held.set(seq,rec.line);log(who,`EM ESPERA: ${seq} (falta o registo ${r.last+1})`,'warn');
+    setRule(`R${r.id} · REG ${seq}\nseq > último + 1 (${r.last+1})\n→ retém em memória\n  retidos = ${r.held.size}${r.held.size>LIMITE?' > ':' ≤ '}LIMITE_RETIDOS (${LIMITE})`);}
+  if(r.held.size>LIMITE)await recover(r,id);
+}
+async function recover(r,id){
+  const i=r.id-1,who='R'+r.id,L=S.L;
+  const from=r.last+1,to=Math.min(...r.held.keys())-1;
+  r.busy=true;r.conns++;r.stat='a recuperar por TCP';
+  pTCP[i].classList.add('on');
+  log(who,`RECUPERAÇÃO: ${from}..${to} pedida a ${r.addr}`,'tcp');
+  setRule(`R${r.id} · retidos = ${r.held.size} > ${LIMITE}\n→ pede de último + 1 (${from})\n  até menor retido − 1 (${to})`);
+  let tr=`R${r.id} → ${r.addr}\nconnect(…, T_TCP_MS)\n→ PEDIDO ${from} ${to}\n`;setTcp(tr);
+  try{
+    await fly(pTCP[i],`PEDIDO ${from} ${to}`,id,{kind:'tcpq',dur:1000});
+    while(L.busy)await sleep(60,id);           // o líder atende uma ligação de cada vez
+    L.busy=true;L.srv=`a atender R${r.id}`;
+    const top=Math.min(to,L.seq);
+    const recs=L.file.filter(x=>{const s=seqOf(x.s);return s>=from&&s<=top;});
+    log('L',`RECUPERAÇÃO: ${from}..${top} para 127.0.0.1:${52000+r.id*37+r.conns} (${recs.length} registos)`,'tcp');
+    const applyOne=x=>{const s=seqOf(x.s);if(s===r.last+1){append(r.file,x.s,true);r.last=s;r.recovered++;log(who,'RECUPERADO: '+s,'tcp');}};
+    if(recs.length<=4){
+      for(const x of recs){await fly(pTCP[i],String(seqOf(x.s)),id,{kind:'tcpr',dur:650,reverse:true});tr+='← '+x.s+'\n';setTcp(tr);applyOne(x);}
+    }else{
+      await fly(pTCP[i],recs.length+' registos',id,{kind:'tcpr',dur:1100,reverse:true});
+      recs.slice(0,3).forEach(x=>tr+='← '+x.s+'\n');tr+=`← … (${recs.length} linhas no total)\n`;setTcp(tr);
+      recs.forEach(applyOne);
+    }
+    await fly(pTCP[i],'FIM',id,{kind:'tcpr',dur:550,reverse:true});
+    tr+='← FIM   (o líder fecha a ligação)';setTcp(tr);
+    L.busy=false;L.srv='accept() à espera';
+    const before=r.held.size;drain(r,who,S.quiet);
+    setRule(`R${r.id} · recuperação concluída\n→ ${recs.length} registos por TCP\n→ ${before-r.held.size} retidos escritos\n  retidos agora = ${r.held.size}`);
+  }finally{pTCP[i].classList.remove('on');r.busy=false;if(r.sub)r.stat='subscribe() bloqueado';}
+}
+
+/* ---------- produtor → líder → réplicas ---------- */
+async function typeCLI(s,id,ms=50){S.P.status='a ler da CLI';for(const c of s){S.P.cli+=c;await sleep(ms,id);}await sleep(220,id);}
+function fanout(rec,id,dur){
+  return Promise.all(S.reps.map((r,i)=>r.sub?fly(pNR[i],String(rec.seq),id,{dur:(700+i*60)*dur}).then(()=>{if(r.sub)arrive(r,rec,id);}):null).filter(Boolean));
+}
+async function produce(s,t,id,opt={}){
+  const dur=opt.dur||1,P=S.P,quiet=opt.quiet;
+  if(!opt.noType)await typeCLI(`${s} ${t.toFixed(1)}`,id,opt.fastType?18:50);
+  const msg=`IN;${s};${t.toFixed(1)}`;
+  P.count++;P.status='publica no tópico de entrada';
+  if(!quiet){log('P','Publicado em rep02-in-p0: '+msg);setMsg(`tópico rep02-in-p0\n\n${msg}\n\n(sem número de sequência: o\n produtor não conhece o líder)`);}
+  if(opt.beats)await beat('O produtor publica uma leitura','O produtor não numera nem conhece o líder. Publica IN;S01;21.5 no tópico de entrada da partição 0 e volta a ler da CLI.',msg,id);
+  const job=(async()=>{
+    await fly(pPN,'IN',id,{kind:'pill',dur:520*dur});
+    S.N.msgs++;
+    if(!S.L.up){log('N','rep02-in-p0 sem subscritores: mensagem descartada','warn');return;}
+    await fly(pNL,'IN',id,{kind:'pill',dur:460*dur});
+    const L=S.L,seq=++L.seq,line=mkLine(seq,s,t);
+    append(L.file,line);
+    if(!quiet)log('L','Registado e publicado: '+line);
+    const rec={seq,line,addr:ADDR,port:PORT},reg=`REG;${ADDR};${PORT};${line}`;
+    if(!quiet)setMsg(`tópico rep02-p0\n\n${reg}\n    └──┬───┘ └┬─┘\n   endereço  porto de recuperação`);
+    if(opt.beats)await beat('O líder numera, escreve e só depois propaga',`Atribui o seq ${seq} e acrescenta o registo a lider-p0.txt na mesma secção sincronizada. Só então publica REG no tópico de dados, com o endereço e o porto onde aceita pedidos de recuperação.`,reg,id);
+    await fly(pLN,'REG '+seq,id,{kind:'reg',dur:460*dur});
+    S.N.msgs++;
+    await fanout(rec,id,dur);
+  })();
+  track(job);
+  if(opt.noWait)await sleep(opt.gap||150,id);else await job;
+  P.cli='';P.status='hasNextLine() à espera';
+}
+async function rajada(n,s,id,opt={}){
+  await typeCLI(`rajada ${n} ${s}`,id);
+  const t0=Math.round(T0/1000)*1000+123456;
+  log('P',`rajada ${n} ${s}: primeira publicação em ${t0}`);
+  for(let k=0;k<n;k++){
+    const sensor='S'+String(1+Math.floor(rnd()*s)).padStart(2,'0');const temp=15+Math.round(rnd()*150)/10;
+    await produce(sensor,temp,id,{noType:true,noWait:true,quiet:true,dur:.55,gap:opt.gap||170});
+  }
+  log('P',`rajada ${n} ${s}: última publicação em ${t0+n*3}`);
+  S.P.cli='';
+}
+
+/* ---------- arranque dos processos ---------- */
+async function subRep(r,id,quiet){
+  const i=r.id-1;
+  await fly(pNR[i],'sub',id,{kind:'sreq',dur:600,reverse:true});
+  r.sub=true;r.stat='subscribe() bloqueado';
+  if(!quiet)log('R'+r.id,`Réplica ${r.id} subscreve rep02-p0  (lastSeq() = ${r.last})`);
+}
+async function subLeader(id){
+  await fly(pNL,'sub',id,{kind:'sreq',dur:520,reverse:true});
+  const L=S.L;L.up=true;L.status='subscribe() bloqueado';L.srv='accept() à espera';
+  log('L',`Líder p0: lastSeq() = ${L.seq}, subscreve rep02-in-p0, à escuta em ${ADDR}:${PORT}`);
+}
+function prefill(n){
+  for(let k=1;k<=n;k++){const [s,t]=RECS[(k-1)%RECS.length];const line=mkLine(k,s,t);S.L.file.push({s:line,t:0});S.reps.forEach(r=>{r.file.push({s:line,t:0});r.last=k;r.addr=ADDR+':'+PORT;});}
+  S.L.seq=n;
+}
+function liveAll(){
+  const L=S.L;L.up=true;L.status='subscribe() bloqueado';L.srv='accept() à espera';
+  S.reps.forEach(r=>{r.sub=true;r.stat='subscribe() bloqueado';});
+  S.P.ready=true;S.P.status='hasNextLine() à espera';
+}
+function stopRep(r){r.sub=false;r.held.clear();r.addr=null;r.stat='parada (processo terminado)';log('R'+r.id,'^C  (processo terminado)','warn');}
+const rec=k=>RECS[(k-1)%RECS.length];
+
+/* ---------- cenários ---------- */
+const SC={
+A:async id=>{
+  log('N','Daemon is ready  (API 5001, Pubsub.Enabled = true)');
+  await beat('Uma partição, um líder','Nesta parte só existe a partição 0. Arrancam primeiro as réplicas, que subscrevem rep02-p0, depois o líder e por fim o produtor.','java -cp out rep02.PartitionReplica 1 0     # e 2, e 3\njava -cp out rep02.PartitionLeader 0 1\njava -cp out rep02.Producer',id);
+  for(const r of S.reps)await subRep(r,id);
+  await subLeader(id);
+  await beat('O líder tem duas atividades','Uma thread subscreve rep02-in-p0 e trata as leituras que chegam. A thread principal fica bloqueada em accept() no porto 7000, à espera de pedidos de recuperação.','',id);
+  S.P.ready=true;S.P.status='hasNextLine() à espera';log('P',"Produtor pronto. Formato: <sensor> <temperatura> | rajada <n> <s> | 'sair'");
+  await produce(...rec(1),id,{beats:true});
+  await settle(id);
+  await beat('As réplicas aprendem onde está o líder','Cada réplica aplica o registo com a regra da COMINDIR01 e guarda o endereço e o porto anunciados. Não os tinha na sua configuração.','',id);
+  await beat('Mais quatro leituras','O mesmo ciclo. Sem perdas, nenhuma réplica retém registos e a ligação TCP nunca é usada.','',id);
+  for(let k=2;k<=5;k++)await produce(...rec(k),id);
+  await settle(id);S.diff=true;
+  await beat('Comparar os ficheiros','Os quatro ficheiros têm as mesmas cinco linhas.','diff lider-p0.txt replica-1-p0.txt',id);
+},
+B:async id=>{
+  prefill(5);liveAll();
+  await beat('Ponto de partida','Os quatro ficheiros têm os registos 1 a 5 e as três réplicas conhecem o endereço do líder.','',id);
+  const r2=S.reps[1];stopRep(r2);
+  await beat('A réplica 2 pára','Com o processo perde-se também o que estava em memória: os registos retidos e o endereço do líder.','',id);
+  for(let k=6;k<=8;k++)await produce(...rec(k),id,{fastType:true});
+  await beat('R2 volta a arrancar','Lê lastSeq() de replica-2-p0.txt (5) e volta a subscrever. Ainda não sabe onde está o líder: só o aprende com a próxima mensagem REG.','long ultimo = file.lastSeq();   // 5',id);
+  await subRep(r2,id);
+  for(let k=9;k<=10;k++)await produce(...rec(k),id,{fastType:true});
+  await settle(id);S.diff=true;
+  await beat('Ainda não convergiu','R2 retém 9 e 10 à espera do 6. Com dois registos retidos não há forma de distinguir uma perda de uma entrega fora de ordem, por isso R2 ainda não pede nada.',`retidos = ${r2.held.size}  ≤  LIMITE_RETIDOS = ${LIMITE}`,id);
+  await beat('Mais leituras, uma de cada vez','Cada leitura nova fica retida em R2. A contagem sobe até ultrapassar LIMITE_RETIDOS.','',id);
+  let k=11;
+  while(r2.conns===0){await produce(...rec(k),id,{fastType:true,dur:.7});await settle(id);k++;}
+  const trig=S.L.seq;
+  await beat(`A leitura ${trig} desencadeou o pedido`,`Com o registo ${trig}, R2 passou a ter ${LIMITE+1} registos retidos. Ligou-se por TCP ao endereço anunciado e pediu 6..8. Depois de escrever esses três, os retidos 9 a ${trig} ficaram em sequência e foram escritos.`,'PEDIDO 6 8',id);
+  await beat('Comparar os ficheiros','R2 convergiu: o seu ficheiro é igual a lider-p0.txt.','diff lider-p0.txt replica-2-p0.txt',id);
+},
+C:async id=>{
+  prefill(5);liveAll();
+  const r3=S.reps[2];stopRep(r3);
+  log('R3','$ java -cp out -Ddescartar=6 rep02.PartitionReplica 3 0','cmd');
+  await subRep(r3,id,true);r3.descartar=6;
+  await beat('R3 vai descartar o registo 6','A réplica 3 volta a arrancar com -Ddescartar=6. A primeira vez que o registo 6 chegar pelo PubSub, R3 deita-o fora antes de o aplicar.','java -cp out -Ddescartar=6 rep02.PartitionReplica 3 0',id);
+  await produce(...rec(6),id);
+  await settle(id);S.diff=true;
+  await beat('Nada denuncia a falta','R3 não tem nenhum registo retido nem sabe que existe um 6. O ficheiro fica no 5 e a réplica não pede nada.','',id);
+  await beat('Leituras adicionais, uma de cada vez','Introduzem-se mais leituras até que R3 convirja.','',id);
+  let k=7;
+  while(r3.conns===0){await produce(...rec(k),id,{fastType:true,dur:.7});await settle(id);k++;}
+  await beat(`Foram precisas ${S.L.seq-6} leituras adicionais`,`R3 só recuperou o registo 6 quando ficou com ${LIMITE+1} registos retidos (7 a ${S.L.seq}). Se nenhuma leitura se tivesse seguido ao 6, o ficheiro de R3 ficaria no 5.`,'PEDIDO 6 6',id);
+},
+D:async id=>{
+  rnd=mulberry(11);rndLoss=mulberry(5);
+  prefill(5);liveAll();
+  const r3=S.reps[2];stopRep(r3);
+  log('R3','$ java -cp out -Dperda=0.2 rep02.PartitionReplica 3 0','cmd');
+  await subRep(r3,id,true);r3.perda=.2;
+  await beat('R3 com -Dperda=0.2','Cada REG que chega a R3 pelo PubSub é descartado com probabilidade 0,2. As outras réplicas recebem tudo.','java -cp out -Dperda=0.2 rep02.PartitionReplica 3 0',id);
+  await beat('rajada 60 10','O produtor publica as leituras sem pausas. Aqui são 60 para caberem no ecrã; na ficha são 1000. Enquanto R3 está ligada ao líder por TCP, a thread de subscrição não lê o stream do PubSub: o contador «por ler» mostra as mensagens que vão chegando entretanto.','rajada 60 10',id);
+  S.quiet=true;
+  await rajada(60,10,id);
+  await settle(id);S.quiet=false;S.diff=true;
+  S.reps.forEach(r=>log('R'+r.id,`fim: ${r.file.length} registos escritos · ligações de recuperação ${r.conns} · obtidos por TCP ${r.recovered} · retidos ${r.held.size}`,r.held.size?'warn':''));
+  await beat('Contar o que chegou',`R3 descartou ${r3.drops} mensagens, abriu ${r3.conns} ligações e obteve ${r3.recovered} registos por TCP. No fim tem ${r3.held.size} retidos e faltam-lhe ${S.L.file.length-r3.file.length} registos. Os valores para o ponto 16 são os que medir.`,'diff lider-p0.txt replica-3-p0.txt',id);
+},
+E:async id=>{
+  rnd=mulberry(23);
+  prefill(30);liveAll();
+  const r3=S.reps[2];stopRep(r3);
+  log('R3','$ rm replica-3-p0.txt','cmd');r3.file=[];r3.last=0;
+  await beat('Uma réplica sem histórico','R3 parou e o seu ficheiro foi apagado. Ao voltar a arrancar, lastSeq() devolve 0. O líder já tem 30 registos.','rm replica-3-p0.txt',id);
+  await subRep(r3,id);
+  await beat('rajada 20 10','R3 retém tudo o que recebe, porque lhe falta o registo 1. À décima primeira mensagem retida recupera, numa só ligação, todo o histórico anterior.','rajada 20 10',id);
+  S.quiet=true;
+  await rajada(20,10,id,{gap:260});
+  await settle(id);S.quiet=false;S.diff=true;
+  await beat('Comparar os ficheiros',`R3 abriu ${r3.conns} ligação e recebeu ${r3.recovered} registos por TCP. Os seguintes chegaram pelo PubSub.`,'diff lider-p0.txt replica-3-p0.txt',id);
+}
+};
+
+/* ---------- controlo ---------- */
+let current='A';
+async function run(sc){
+  runId++;const id=runId;stepNo=0;stepping=false;tick=0;rnd=mulberry(7);rndLoss=mulberry(3);
+  if(stepWaiter){const w=stepWaiter;stepWaiter=null;w();}
+  while(pkLayer.firstChild)pkLayer.firstChild.remove();
+  pTCP.forEach(p=>p.classList.remove('on'));
+  pend.clear();
+  logEl.textContent='';setMsg('—');setTcp('—');setRule('—');
+  S=freshState();
+  try{await SC[sc](id);
+    if(id===runId){await sleep(200,id);document.getElementById('ctitle').textContent+=' · fim do cenário';}
+  }catch(e){if(!(e instanceof Cancel))console.error(e);}
+}
+const playBtn=document.getElementById('play');
+function syncPlay(){playBtn.textContent=playing?'❚❚ Pausa':'▶ Reproduzir';}
+playBtn.onclick=()=>{playing=!playing;stepping=false;if(playing&&stepWaiter)stepWaiter();syncPlay();};
+document.getElementById('step').onclick=()=>{if(playing){playing=false;syncPlay();}if(stepWaiter)stepWaiter();else stepping=true;};
+document.getElementById('restart').onclick=()=>run(current);
+document.getElementById('speed').onchange=e=>speed=parseFloat(e.target.value);
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
+  current=b.dataset.sc;document.querySelectorAll('.tab').forEach(x=>x.setAttribute('aria-pressed',x===b));run(current);});
+try{if(matchMedia('(prefers-reduced-motion: reduce)').matches)playing=false;}catch(e){}
+syncPlay();
+S=freshState();
+requestAnimationFrame(loop);
+run('A');
+})();
+</script>
+</body>
+</html>

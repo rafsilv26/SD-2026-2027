@@ -1,0 +1,507 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Arquitetura COMINDIR02</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Instrument+Sans:wght@500;600;700&display=swap">
+<style>
+/* Layout: coluna de leitura técnica, diagrama largo no topo, fichas de classe em grelha; cada partição tem a sua cor */
+:root{
+  --bg:#f5f7f8; --surface:#ffffff; --fg:#17212b; --muted:#5a6773; --line:#d6dde3; --code-bg:#eef2f5;
+  --accent:#0f5f7a;
+  --p0:#2b6cb0; --p1:#b7791f; --p2:#2f855a; --tcp:#c53030;
+  --p0-soft:#e3edf8; --p1-soft:#f8eedd; --p2-soft:#e2f2e8; --tcp-soft:#fbe4e4;
+  --f-display:"Instrument Sans",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#11171c; --surface:#182129; --fg:#e4eaef; --muted:#97a5b1; --line:#2c3a45; --code-bg:#1e2a33;
+  --accent:#5fb4d1; --p0:#6aa7e8; --p1:#e0aa52; --p2:#63c08c; --tcp:#f07272;
+  --p0-soft:#1c2c3f; --p1-soft:#33291a; --p2-soft:#1a3226; --tcp-soft:#3a1f22; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#11171c; --surface:#182129; --fg:#e4eaef; --muted:#97a5b1; --line:#2c3a45; --code-bg:#1e2a33;
+  --accent:#5fb4d1; --p0:#6aa7e8; --p1:#e0aa52; --p2:#63c08c; --tcp:#f07272;
+  --p0-soft:#1c2c3f; --p1-soft:#33291a; --p2-soft:#1a3226; --tcp-soft:#3a1f22; color-scheme:dark}
+
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.6;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:32px 64px}
+.wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:48px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.2}
+h1{font-size:clamp(28px,4vw,38px);font-weight:700}
+h2{font-size:23px;font-weight:600;display:flex;gap:10px;align-items:baseline}
+h2 .n{font-family:var(--f-mono);font-size:13px;color:var(--accent);font-weight:500}
+h3{font-size:17px;font-weight:600}
+p{margin:0;max-width:72ch}
+section{display:flex;flex-direction:column;gap:16px}
+code,.mono{font-family:var(--f-mono);font-size:.88em}
+code{background:var(--code-bg);padding:1px 5px;border-radius:4px}
+.eyebrow{font-family:var(--f-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+header{display:flex;flex-direction:column;gap:12px}
+.lede{font-size:17px;color:var(--muted);max-width:68ch}
+
+.params{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.params div{background:var(--surface);padding:12px 14px;display:flex;flex-direction:column;gap:2px}
+.params b{font-family:var(--f-mono);font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+.params span{font-size:12.5px;color:var(--muted)}
+
+.diagram{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow-x:auto;padding:12px}
+.diagram svg{display:block;min-width:820px;width:100%;height:auto}
+.legend{display:flex;flex-wrap:wrap;gap:16px;font-size:13px;color:var(--muted)}
+.legend i{display:inline-block;width:22px;height:0;border-top:3px solid;vertical-align:middle;margin-right:6px}
+figcaption{font-size:13.5px;color:var(--muted);max-width:80ch}
+figure{margin:0;display:flex;flex-direction:column;gap:12px}
+
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--f-mono);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:500;background:var(--code-bg)}
+tr:last-child td{border-bottom:0}
+
+.roles{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.role{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.role .proj{font-family:var(--f-mono);font-size:12px;color:var(--accent)}
+.role dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:13.5px}
+.role dt{color:var(--muted)}
+.role dd{margin:0}
+
+.projects{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+.project{border:1px dashed var(--line);border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.project h3{font-family:var(--f-mono);font-size:14px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-family:var(--f-mono);font-size:12.5px;padding:3px 8px;border-radius:999px;border:1px solid var(--line);background:var(--surface)}
+.chip.new{border-color:var(--accent);color:var(--accent)}
+.chip.mod{border-style:dashed}
+
+.classes{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:16px}
+.cls{background:var(--surface);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;min-width:0}
+.cls .hd{padding:10px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
+.cls .hd b{font-family:var(--f-mono);font-size:15px}
+.cls .hd span{font-size:12px;color:var(--muted)}
+.cls .bd{padding:12px 14px;display:flex;flex-direction:column;gap:10px;font-size:13.5px}
+.cls ul{margin:0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:3px;font-family:var(--f-mono);font-size:12.5px}
+.cls ul li{overflow-wrap:anywhere}
+.cls .lbl{font-family:var(--f-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.tag{font-family:var(--f-mono);font-size:11px;padding:1px 6px;border-radius:4px;background:var(--code-bg);color:var(--muted)}
+
+.threads{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.lane{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.th{border-left:3px solid var(--accent);padding:4px 0 4px 10px;font-size:13.5px}
+.th b{font-family:var(--f-mono);font-size:13px}
+.shared{background:var(--tcp-soft);border-radius:6px;padding:10px 12px;font-size:13.5px}
+
+.rules{display:flex;flex-direction:column;gap:8px}
+.rule{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:14px}
+.rule .cond{font-family:var(--f-mono);font-size:13px;font-weight:600}
+@media (max-width:560px){.rule{grid-template-columns:1fr;gap:4px}}
+.rule.r-ok .cond{color:var(--p2)} .rule.r-dup .cond{color:var(--muted)} .rule.r-hold .cond{color:var(--p1)} .rule.r-fail .cond{color:var(--tcp)}
+
+pre.mermaid{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;overflow-x:auto;margin:0}
+.note{font-size:13.5px;color:var(--muted);border-left:3px solid var(--line);padding-left:12px;max-width:72ch}
+.limits{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:75ch}
+</style>
+
+<div class="wrap">
+<header>
+  <span class="eyebrow">Sistemas Distribuídos · ESTGV · Ficha prática COMINDIR02</span>
+  <h1>Particionamento e recuperação de registos com Publish/Subscribe</h1>
+  <p class="lede">O presente documento descreve a arquitetura do sistema especificado na ficha COMINDIR02. Identificam-se os processos que o compõem, o papel atribuído a cada um, os canais de comunicação e os respetivos formatos de mensagem, a organização das classes por projeto e as atividades concorrentes que partilham estado. A designação das classes, tópicos, portos e formatos segue o enunciado; os atributos e métodos auxiliares constituem uma proposta de concretização.</p>
+</header>
+
+<section>
+  <h2><span class="n">1</span>Parâmetros do sistema</h2>
+  <div class="params">
+    <div><b>N = 3</b><span>número de partições (Parte A: N = 1)</span></div>
+    <div><b>R = 2</b><span>fator de replicação</span></div>
+    <div><b>10</b><span><code>LIMITE_RETIDOS</code>: limiar de deteção de perda</span></div>
+    <div><b>7000 + k</b><span>porto de recuperação do líder da partição k</span></div>
+    <div><b>5000 ms</b><span><code>T_TCP_MS</code>: tempo máximo de ligação e de leitura</span></div>
+    <div><b>floorMod</b><span>função de partição sobre <code>hashCode(sensor)</code></span></div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="n">2</span>Visão geral da arquitetura</h2>
+  <p>O fluxo de dados organiza-se em três troços. O <b>produtor</b> determina a partição de cada leitura a partir da chave de partição (o identificador do sensor) e publica-a no tópico de entrada correspondente. O <b>líder</b> da partição atribui-lhe um número de sequência, regista-a no seu ficheiro local e, em seguida, propaga-a no tópico de dados. As <b>réplicas</b> responsáveis por essa partição aplicam os registos segundo a ordem definida pelo líder. A recuperação de registos perdidos constitui a única interação fora do PubSub: realiza-se por comunicação direta, através de uma ligação TCP da réplica para o endereço e porto anunciados pelo líder na mensagem <code>REG</code> mais recente.</p>
+  <figure>
+  <div class="diagram">
+  <svg viewBox="0 0 1010 570" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Figura 1: arquitetura do sistema com três partições e fator de replicação dois, incluindo a recuperação por TCP">
+    <defs>
+      <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker>
+      <marker id="art" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--tcp)"/></marker>
+    </defs>
+    <g font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--muted)">
+      <text x="85" y="22" text-anchor="middle">Produção</text>
+      <text x="280" y="22" text-anchor="middle">Tópicos de entrada</text>
+      <text x="500" y="22" text-anchor="middle">Líderes de partição</text>
+      <text x="720" y="22" text-anchor="middle">Tópicos de dados</text>
+      <text x="920" y="22" text-anchor="middle">Réplicas (R = 2)</text>
+    </g>
+
+    <g fill="none" stroke-width="2">
+      <path d="M150,280 C180,280 180,110 210,110" stroke="var(--p0)" marker-end="url(#ar)"/>
+      <path d="M150,280 L210,280" stroke="var(--p1)" marker-end="url(#ar)"/>
+      <path d="M150,280 C180,280 180,450 210,450" stroke="var(--p2)" marker-end="url(#ar)"/>
+      <path d="M350,110 L410,110" stroke="var(--p0)" marker-end="url(#ar)"/>
+      <path d="M350,280 L410,280" stroke="var(--p1)" marker-end="url(#ar)"/>
+      <path d="M350,450 L410,450" stroke="var(--p2)" marker-end="url(#ar)"/>
+      <path d="M590,110 L650,110" stroke="var(--p0)" marker-end="url(#ar)"/>
+      <path d="M590,280 L650,280" stroke="var(--p1)" marker-end="url(#ar)"/>
+      <path d="M590,450 L650,450" stroke="var(--p2)" marker-end="url(#ar)"/>
+      <path d="M790,100 L850,100" stroke="var(--p0)" marker-end="url(#ar)"/>
+      <path d="M790,120 C825,120 815,440 850,440" stroke="var(--p0)" marker-end="url(#ar)"/>
+      <path d="M790,270 C820,270 820,122 850,122" stroke="var(--p1)" marker-end="url(#ar)"/>
+      <path d="M790,282 L850,282" stroke="var(--p1)" marker-end="url(#ar)"/>
+      <path d="M790,440 C820,440 820,300 850,300" stroke="var(--p2)" marker-end="url(#ar)"/>
+      <path d="M790,460 L850,460" stroke="var(--p2)" marker-end="url(#ar)"/>
+      <path d="M915,495 C915,550 520,560 520,507" stroke="var(--tcp)" stroke-dasharray="6 5" marker-end="url(#art)"/>
+    </g>
+    <text x="720" y="552" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11.5" fill="var(--tcp)">Pedido de recuperação (TCP, porto 7002): PEDIDO → registos → FIM</text>
+
+    <rect x="20" y="235" width="130" height="90" rx="8" fill="var(--surface)" stroke="var(--fg)" stroke-width="1.5"/>
+    <text x="85" y="264" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-weight="600" font-size="15" fill="var(--fg)">Produtor</text>
+    <text x="85" y="284" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--muted)">função de partição</text>
+    <text x="85" y="300" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--muted)">k = of(sensor)</text>
+
+    <g font-family="IBM Plex Mono, monospace" font-size="11.5">
+      <rect x="210" y="90" width="140" height="40" rx="20" fill="var(--p0-soft)" stroke="var(--p0)"/>
+      <text x="280" y="114" text-anchor="middle" fill="var(--fg)">rep02-in-p0</text>
+      <rect x="210" y="260" width="140" height="40" rx="20" fill="var(--p1-soft)" stroke="var(--p1)"/>
+      <text x="280" y="284" text-anchor="middle" fill="var(--fg)">rep02-in-p1</text>
+      <rect x="210" y="430" width="140" height="40" rx="20" fill="var(--p2-soft)" stroke="var(--p2)"/>
+      <text x="280" y="454" text-anchor="middle" fill="var(--fg)">rep02-in-p2</text>
+    </g>
+    <text x="280" y="160" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--muted)">mensagens IN</text>
+
+    <g>
+      <rect x="410" y="58" width="180" height="104" rx="8" fill="var(--surface)" stroke="var(--p0)" stroke-width="2"/>
+      <text x="500" y="84" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-weight="600" font-size="14" fill="var(--fg)">Líder da partição 0</text>
+      <text x="500" y="104" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--muted)">sequência própria · lider-p0.txt</text>
+      <text x="500" y="122" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--muted)">servidor de recuperação :7000</text>
+      <text x="500" y="146" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--p0)">atividade de entrada ∥ servidor TCP</text>
+
+      <rect x="410" y="228" width="180" height="104" rx="8" fill="var(--surface)" stroke="var(--p1)" stroke-width="2"/>
+      <text x="500" y="254" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-weight="600" font-size="14" fill="var(--fg)">Líder da partição 1</text>
+      <text x="500" y="274" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--muted)">sequência própria · lider-p1.txt</text>
+      <text x="500" y="292" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--muted)">servidor de recuperação :7001</text>
+      <text x="500" y="316" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--p1)">atividade de entrada ∥ servidor TCP</text>
+
+      <rect x="410" y="398" width="180" height="104" rx="8" fill="var(--surface)" stroke="var(--p2)" stroke-width="2"/>
+      <text x="500" y="424" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-weight="600" font-size="14" fill="var(--fg)">Líder da partição 2</text>
+      <text x="500" y="444" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--muted)">sequência própria · lider-p2.txt</text>
+      <text x="500" y="462" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--muted)">servidor de recuperação :7002</text>
+      <text x="500" y="486" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--p2)">atividade de entrada ∥ servidor TCP</text>
+    </g>
+
+    <g font-family="IBM Plex Mono, monospace" font-size="11.5">
+      <rect x="650" y="90" width="140" height="40" rx="20" fill="var(--p0-soft)" stroke="var(--p0)"/>
+      <text x="720" y="114" text-anchor="middle" fill="var(--fg)">rep02-p0</text>
+      <rect x="650" y="260" width="140" height="40" rx="20" fill="var(--p1-soft)" stroke="var(--p1)"/>
+      <text x="720" y="284" text-anchor="middle" fill="var(--fg)">rep02-p1</text>
+      <rect x="650" y="430" width="140" height="40" rx="20" fill="var(--p2-soft)" stroke="var(--p2)"/>
+      <text x="720" y="454" text-anchor="middle" fill="var(--fg)">rep02-p2</text>
+    </g>
+    <text x="720" y="160" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--muted)">mensagens REG (com endereço e porto)</text>
+
+    <g>
+      <rect x="850" y="72" width="140" height="70" rx="8" fill="var(--surface)" stroke="var(--fg)" stroke-width="1.5"/>
+      <text x="920" y="98" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-weight="600" font-size="14" fill="var(--fg)">Réplica 1</text>
+      <text x="920" y="120" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--muted)">partições p0, p1</text>
+
+      <rect x="850" y="255" width="140" height="70" rx="8" fill="var(--surface)" stroke="var(--fg)" stroke-width="1.5"/>
+      <text x="920" y="281" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-weight="600" font-size="14" fill="var(--fg)">Réplica 2</text>
+      <text x="920" y="303" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--muted)">partições p1, p2</text>
+
+      <rect x="850" y="425" width="140" height="70" rx="8" fill="var(--surface)" stroke="var(--fg)" stroke-width="1.5"/>
+      <text x="920" y="451" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-weight="600" font-size="14" fill="var(--fg)">Réplica 3</text>
+      <text x="920" y="473" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--muted)">partições p2, p0</text>
+    </g>
+  </svg>
+  </div>
+  <div class="legend">
+    <span><i style="border-color:var(--p0)"></i>partição 0</span>
+    <span><i style="border-color:var(--p1)"></i>partição 1</span>
+    <span><i style="border-color:var(--p2)"></i>partição 2</span>
+    <span><i style="border-color:var(--tcp);border-top-style:dashed"></i>comunicação direta para recuperação</span>
+  </div>
+  <figcaption><b>Figura 1.</b> Arquitetura do sistema com N = 3 partições e fator de replicação R = 2. As setas contínuas representam comunicação indireta através do PubSub do IPFS; a seta tracejada exemplifica um pedido de recuperação da réplica 3 ao líder da partição 2.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2><span class="n">3</span>Papéis e conhecimento mútuo dos processos</h2>
+  <p>A caracterização de cada papel assenta no conhecimento que o processo detém sobre os restantes. Nos troços mediados pelo PubSub preserva-se o desacoplamento no espaço; apenas o mecanismo de recuperação o abandona, introduzindo acoplamento no espaço e no tempo entre a réplica e o líder.</p>
+  <div class="roles">
+    <div class="role">
+      <span class="proj">rep02-produtor · Producer</span>
+      <h3>Produtor</h3>
+      <p>Constitui o ponto de entrada das leituras no sistema. Determina a partição de cada leitura através da chave de partição e publica a mensagem <code>IN</code> no tópico de entrada respetivo.</p>
+      <dl><dt>Conhece</dt><dd>o número de partições e a função de partição</dd><dt>Desconhece</dt><dd>a identidade dos líderes e das réplicas</dd><dt>Limitação</dt><dd>não numera as leituras; uma perda neste troço não é detetável</dd></dl>
+    </div>
+    <div class="role">
+      <span class="proj">rep02-lider · PartitionLeader</span>
+      <h3>Líder da partição k</h3>
+      <p>Define a ordem dos registos da partição k. Atribui o número de sequência, escreve o registo localmente e só depois o propaga. O ficheiro local constitui a fonte da recuperação.</p>
+      <dl><dt>Conhece</dt><dd>k, N, o endereço anunciado e o porto de recuperação</dd><dt>Desconhece</dt><dd>o número e a identidade das réplicas</dd><dt>Verifica</dt><dd>que <code>of(sensor) == k</code>; caso contrário, rejeita a leitura</dd></dl>
+    </div>
+    <div class="role">
+      <span class="proj">rep02-replica · PartitionReplica</span>
+      <h3>Réplica n</h3>
+      <p>Mantém as partições que lhe foram atribuídas, cada uma num ficheiro próprio. Aplica os registos por ordem, retém em memória os que chegam antecipadamente e solicita ao líder os que considera perdidos.</p>
+      <dl><dt>Conhece</dt><dd>o seu identificador e as partições atribuídas</dd><dt>Obtém</dt><dd>o endereço e o porto do líder a partir de cada <code>REG</code></dd><dt>Decide</dt><dd>que um registo se perdeu quando os retidos excedem 10</dd></dl>
+    </div>
+    <div class="role">
+      <span class="proj">rep02-replica · PartitionCheck</span>
+      <h3>Verificador</h3>
+      <p>Ferramenta de análise a posteriori. Lê os ficheiros <code>lider-p*.txt</code> e <code>replica-*-p*.txt</code> e verifica a correção da partição, a continuidade das sequências, o número de réplicas por partição e a relação de igualdade ou de prefixo com o ficheiro do líder.</p>
+      <dl><dt>Execução</dt><dd>no final de cada ensaio</dd><dt>Comunicação</dt><dd>nenhuma; opera apenas sobre ficheiros</dd></dl>
+    </div>
+    <div class="role">
+      <span class="proj">executável ipfs (Kubo)</span>
+      <h3>Daemon IPFS</h3>
+      <p>Intermediário da comunicação indireta, acedido pela API HTTP (<code>/api/v0</code>, porto 5001) através da classe <code>IpfsPubSub</code>. Oferece entrega <em>best-effort</em>, sujeita a perdas e a reordenação.</p>
+      <dl><dt>Assegura</dt><dd>desacoplamento no espaço e no tempo</dd><dt>Não assegura</dt><dd>entrega nem ordem</dd></dl>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="n">4</span>Canais de comunicação e formato das mensagens</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Canal</th><th>Formato</th><th>Emissor</th><th>Recetor</th><th>Modalidade</th></tr></thead>
+    <tbody>
+      <tr><td><code>rep02-in-p&lt;k&gt;</code></td><td><code>IN;&lt;sensor&gt;;&lt;temp&gt;</code></td><td>produtor(es)</td><td>líder da partição k</td><td>indireta (PubSub)</td></tr>
+      <tr><td><code>rep02-p&lt;k&gt;</code></td><td><code>REG;&lt;host&gt;;&lt;porto&gt;;&lt;seq&gt;;&lt;sensor&gt;;&lt;temp&gt;;&lt;instante&gt;</code></td><td>líder da partição k</td><td>réplicas da partição k</td><td>indireta (PubSub)</td></tr>
+      <tr><td>TCP, porto <code>7000+k</code></td><td><code>PEDIDO &lt;de&gt; &lt;até&gt;</code></td><td>réplica</td><td>líder da partição k</td><td>direta</td></tr>
+      <tr><td>TCP, porto <code>7000+k</code></td><td><code>&lt;seq&gt;;&lt;sensor&gt;;&lt;temp&gt;;&lt;instante&gt;</code> (0 a n linhas), seguido de <code>FIM</code></td><td>líder da partição k</td><td>réplica</td><td>direta</td></tr>
+      <tr><td>TCP, porto <code>7000+k</code></td><td><code>ERRO &lt;motivo&gt;</code> (pedido mal formado ou <i>de</i> &gt; <i>até</i>)</td><td>líder da partição k</td><td>réplica</td><td>direta</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">O líder limita o extremo <i>até</i> ao último número de sequência escrito. As linhas da resposta adotam o formato dos ficheiros (<code>SensorRecord.toLine()</code>), pelo que podem ser interpretadas com <code>SensorRecord.fromLine</code>.</p>
+</section>
+
+<section>
+  <h2><span class="n">5</span>Organização em projetos e classes</h2>
+  <p>O sistema distribui-se por três projetos, que simulam máquinas distintas; todas as classes pertencem ao pacote <code>rep02</code>. As classes herdadas da COMINDIR01 são copiadas sem alteração além do pacote, exceto <code>RecordFile</code>, que recebe o método <code>range</code>.</p>
+  <div class="projects">
+    <div class="project"><h3>rep02-produtor</h3><div class="chips">
+      <span class="chip">SensorRecord</span><span class="chip">RecordFile</span><span class="chip">IpfsPubSub</span><span class="chip new">Wire</span><span class="chip new">Partitioner</span><span class="chip new">Producer</span></div></div>
+    <div class="project"><h3>rep02-lider</h3><div class="chips">
+      <span class="chip">SensorRecord</span><span class="chip mod">RecordFile + range</span><span class="chip">IpfsPubSub</span><span class="chip new">Wire</span><span class="chip new">Partitioner</span><span class="chip new">PartitionLeader</span></div></div>
+    <div class="project"><h3>rep02-replica</h3><div class="chips">
+      <span class="chip">SensorRecord</span><span class="chip mod">RecordFile + range</span><span class="chip">IpfsPubSub</span><span class="chip new">Wire</span><span class="chip new">Partitioner</span><span class="chip new">PartitionReplica</span><span class="chip new">PartitionCheck</span></div></div>
+  </div>
+  <div class="legend"><span><span class="chip">x</span> herdada da COMINDIR01</span><span><span class="chip mod">x</span> herdada e estendida</span><span><span class="chip new">x</span> introduzida nesta ficha</span></div>
+
+  <div class="classes">
+    <div class="cls"><div class="hd"><b>SensorRecord</b><span>modelo de dados · COMINDIR01</span></div><div class="bd">
+      <p>Representa um registo imutável no formato <code>seq;sensor;temperatura;instante</code>.</p>
+      <div class="lbl">Operações relevantes</div><ul><li>toLine(): serialização para ficheiro e resposta TCP</li><li>fromLine(String): interpretação de ficheiro, REG e resposta TCP</li><li>getSeq()</li></ul></div></div>
+
+    <div class="cls"><div class="hd"><b>RecordFile</b><span>persistência · estendida</span></div><div class="bd">
+      <p>Encapsula um ficheiro de registos. Os métodos são <code>synchronized</code>, o que impede que uma leitura por <code>range</code> ocorra durante um <code>append</code>.</p>
+      <ul><li>append(SensorRecord)</li><li>lastSeq(): valor inicial da sequência no líder e na réplica</li><li><b>range(from, to)</b>: List&lt;SensorRecord&gt; <span class="tag">novo</span></li></ul>
+      <p class="note">O método range percorre o ficheiro completo; o custo de cada pedido é linear no tamanho do histórico.</p></div></div>
+
+    <div class="cls"><div class="hd"><b>IpfsPubSub</b><span>comunicação indireta · COMINDIR01</span></div><div class="bd">
+      <p>Cliente da API HTTP do Kubo, implementado com <code>java.net.http.HttpClient</code>.</p>
+      <ul><li>publish(topic, msg)</li><li>subscribe(topic, handler): operação bloqueante</li></ul>
+      <p class="note">Por ser bloqueante, cada subscrição exige uma thread dedicada.</p></div></div>
+
+    <div class="cls"><div class="hd"><b>Wire</b><span>protocolo · fornecida</span></div><div class="bd">
+      <p>Centraliza os nomes dos tópicos, as constantes do mecanismo de recuperação e o formato das mensagens, assegurando a coerência entre os três projetos.</p>
+      <ul><li>LIMITE_RETIDOS = 10, T_TCP_MS = 5000, PORTO_BASE = 7000</li><li>topicIn(k), topicData(k)</li><li>in(sensor, temp), reg(host, port, r)</li><li>type(msg), body(msg), regParts(msg): {host, porto, linha}</li></ul></div></div>
+
+    <div class="cls"><div class="hd"><b>Partitioner</b><span>particionamento · fornecida</span></div><div class="bd">
+      <p>Implementa a função de partição. É determinística em qualquer JVM, uma vez que o resultado de <code>String.hashCode()</code> está fixado pela especificação da linguagem.</p>
+      <ul><li>Partitioner(int n)</li><li>of(sensorId) = floorMod(hashCode, n)</li><li>count()</li></ul>
+      <p class="note">Utiliza-se floorMod em vez do operador %, que produziria um valor negativo para um hashCode negativo.</p></div></div>
+
+    <div class="cls"><div class="hd"><b>Producer</b><span>ponto de entrada · rep02-produtor</span></div><div class="bd">
+      <p>Invocação: <code>Producer &lt;N&gt; [api]</code>. Interpreta comandos da consola e publica <code>IN</code> em <code>topicIn(of(sensor))</code>, indicando a partição de destino.</p>
+      <div class="lbl">Comandos</div>
+      <ul><li>&lt;sensor&gt; &lt;temperatura&gt;</li><li>rajada &lt;n&gt; &lt;s&gt;: sensores S01..S&lt;s&gt;, 15–30 °C</li><li>rajada-quente &lt;n&gt; &lt;s&gt;: 80 % das leituras de S01</li></ul>
+      <div class="lbl">No final de cada rajada</div><ul><li>instantes da primeira e da última publicação</li><li>número de leituras por partição</li></ul></div></div>
+
+    <div class="cls"><div class="hd"><b>PartitionLeader</b><span>ponto de entrada · rep02-lider</span></div><div class="bd">
+      <p>Invocação: <code>PartitionLeader &lt;k&gt; &lt;N&gt; [endereço] [api]</code>. O endereço anunciado assume por omissão <code>127.0.0.1</code>; o porto de recuperação é <code>7000+k</code>.</p>
+      <div class="lbl">Estado</div>
+      <ul><li>k, N, endereço anunciado, porto, Partitioner</li><li>RecordFile lider-p&lt;k&gt;.txt</li><li>long ultimoSeq, inicializado com lastSeq() <span class="tag">partilhado</span></li></ul>
+      <div class="lbl">Operações propostas</div>
+      <ul><li>onIn(msg): valida o tipo e a partição; numa secção sincronizada incrementa seq e executa append; publica reg(host, porto, r)</li><li>atender(Socket): lê PEDIDO, limita o extremo superior, responde com range e FIM, ou ERRO</li></ul>
+      <div class="lbl">Mensagens de diagnóstico</div><ul><li>REJEITADO · PARTIÇÃO ERRADA · RECUPERAÇÃO: de..até para … (n registos)</li></ul></div></div>
+
+    <div class="cls"><div class="hd"><b>PartitionReplica</b><span>ponto de entrada · rep02-replica</span></div><div class="bd">
+      <p>Invocação: <code>PartitionReplica &lt;id&gt; &lt;k1,k2&gt; [portoApi]</code>, com as propriedades <code>-Dperda=p</code> e <code>-Ddescartar=seq</code>, aplicadas exclusivamente à receção por PubSub.</p>
+      <div class="lbl">Estado por partição (classe interna proposta)</div>
+      <ul><li>int k · RecordFile replica-&lt;id&gt;-p&lt;k&gt;.txt</li><li>long ultimo, inicializado com lastSeq()</li><li>TreeMap&lt;Long, SensorRecord&gt; retidos</li><li>String hostLider · int portoLider, atualizados a cada REG</li></ul>
+      <div class="lbl">Operações propostas</div>
+      <ul><li>onReg(msg): simulação de perda, atualização do líder, aplicação</li><li>aplicar(r): regra descrita na secção 7</li><li>escreverEmSequencia(): escrita dos retidos contíguos</li><li>recuperar(): ligação TCP, PEDIDO e leitura até FIM</li></ul>
+      <div class="lbl">Mensagens de diagnóstico</div><ul><li>DUPLICADO · EM ESPERA · REJEITADO · DESCARTADO (simulação) · RECUPERAÇÃO … pedida a · RECUPERADO · RECUPERAÇÃO FALHOU</li></ul></div></div>
+
+    <div class="cls"><div class="hd"><b>PartitionCheck</b><span>ponto de entrada · rep02-replica</span></div><div class="bd">
+      <p>Invocação: <code>PartitionCheck &lt;N&gt; &lt;pasta&gt;</code>. Produz, para cada partição k, um relatório que verifica:</p>
+      <ul><li>que todos os registos do líder satisfazem of(sensor) == k</li><li>que a sequência começa em 1, sem lacunas nem repetições</li><li>o número de réplicas (esperado: 2) e, para cada uma, igualdade ou prefixo e registos em falta</li><li>o número de registos e de sensores distintos</li><li>que o total do sistema coincide com a soma das partições</li></ul></div></div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="n">6</span>Concorrência e estado partilhado</h2>
+  <div class="threads">
+    <div class="lane"><h3>PartitionLeader</h3>
+      <div class="th"><b>Atividade de entrada</b> (thread dedicada)<br>Bloqueia em <code>subscribe(topicIn(k))</code>. Escreve <code>ultimoSeq</code> e o ficheiro do líder.</div>
+      <div class="th"><b>Servidor de recuperação</b> (thread principal)<br>Bloqueia em <code>accept()</code> e, posteriormente, em <code>readLine()</code>. Lê <code>ultimoSeq</code>, para limitar o intervalo, e o ficheiro, através de <code>range</code>. As ligações são atendidas sequencialmente.</div>
+      <div class="shared"><b>Estado partilhado:</b> <code>ultimoSeq</code> e <code>lider-p&lt;k&gt;.txt</code>. A atribuição do número de sequência e o <code>append</code> devem integrar a mesma secção sincronizada; caso contrário, o servidor poderia observar um número de sequência ainda não persistido.</div>
+    </div>
+    <div class="lane"><h3>PartitionReplica</h3>
+      <div class="th"><b>Uma thread por partição</b><br>Bloqueia em <code>subscribe(topicData(k))</code>. A recuperação é executada nesta mesma thread e bloqueia em <code>connect</code> e <code>readLine</code>, no máximo <code>T_TCP_MS</code>.</div>
+      <div class="th"><b>Thread principal</b><br>Inicia as threads de subscrição e aguarda a sua conclusão.</div>
+      <div class="shared"><b>Estado partilhado:</b> reduzido, dado que cada partição dispõe de estado e ficheiro próprios. Exigem atenção o estado global da simulação (o descarte já efetuado e o gerador aleatório) e a escrita na consola. A recuperação de uma partição não interrompe a receção das restantes; durante esse período, as mensagens da partição em recuperação permanecem por ler na resposta HTTP do pedido de subscrição.</div>
+    </div>
+    <div class="lane"><h3>Producer</h3>
+      <div class="th"><b>Thread principal</b><br>Interpreta a consola e publica; o comando <code>rajada</code> publica em ciclo, à máxima cadência possível.</div>
+      <div class="shared" style="background:var(--code-bg)"><b>Sem estado partilhado.</b> O produtor não conserva as leituras enviadas, pelo que não tem capacidade de as retransmitir.</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="n">7</span>Regra de aplicação na réplica</h2>
+  <p>A regra aplica-se independentemente a cada partição, tanto aos registos <code>REG</code> recebidos por PubSub como aos registos obtidos por recuperação.</p>
+  <div class="rules">
+    <div class="rule r-ok"><span class="cond">seq = último + 1</span><span>O registo é escrito; seguidamente, escrevem-se os registos retidos que passaram a estar em sequência (enquanto <code>retidos.firstKey() = último + 1</code>).</span></div>
+    <div class="rule r-dup"><span class="cond">seq ≤ último, ou já retido</span><span>O registo é considerado duplicado e ignorado. Esta condição impede a repetição de registos recebidos simultaneamente por PubSub e por TCP.</span></div>
+    <div class="rule r-hold"><span class="cond">seq &gt; último + 1</span><span>O registo é retido em memória. Se o número de retidos exceder <code>LIMITE_RETIDOS</code>, solicita-se o intervalo de <code>último + 1</code> a <code>retidos.firstKey() − 1</code>; cada registo recebido é aplicado segundo a mesma regra e, por fim, escrevem-se os retidos contíguos.</span></div>
+    <div class="rule r-fail"><span class="cond">falha na recuperação</span><span>Em caso de ligação recusada, tempo esgotado ou interrupção antes de <code>FIM</code>, mantêm-se os registos já escritos e os retidos em memória. A recuperação é novamente tentada na receção do registo seguinte da partição, uma vez que a condição persiste.</span></div>
+  </div>
+  <p class="note">Uma réplica iniciada com o ficheiro vazio retém todos os registos recebidos e, à décima primeira mensagem retida, obtém numa única ligação todo o histórico anterior da partição. A perda do último registo de uma série não é recuperada, porquanto não chegam os dez registos posteriores necessários para desencadear o pedido.</p>
+</section>
+
+<section>
+  <h2><span class="n">8</span>Sequência de uma recuperação</h2>
+  <figure>
+  <pre class="mermaid">
+sequenceDiagram
+    participant P as Produtor
+    participant L as Líder da partição 2 (porto 7002)
+    participant T as Tópico rep02-p2
+    participant R as Réplica 3 (partição 2)
+    P->>L: IN;S07;21.4 (via rep02-in-p2)
+    L->>L: secção sincronizada: seq = 42, append em lider-p2.txt
+    L->>T: REG;127.0.0.1;7002;42;S07;21.4;…
+    T--xR: mensagem perdida (entrega best-effort)
+    Note over R: Receção dos registos 43 a 53: onze retidos, acima de LIMITE_RETIDOS
+    R->>L: ligação a 127.0.0.1:7002 e envio de PEDIDO 42 42
+    L->>L: range(42, min(42, ultimoSeq))
+    L-->>R: 42;S07;21.4;…
+    L-->>R: FIM e encerramento da ligação
+    R->>R: aplicação do registo 42 e escrita dos retidos 43 a 53
+  </pre>
+  <figcaption><b>Figura 2.</b> Diagrama de sequência da recuperação de um registo perdido na partição 2.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2><span class="n">9</span>Distribuição dos ficheiros</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Processo</th><th>Partições</th><th>Ficheiros</th></tr></thead>
+    <tbody>
+      <tr><td>Líderes das partições 0, 1 e 2</td><td>p0 / p1 / p2</td><td><code>lider-p0.txt</code> · <code>lider-p1.txt</code> · <code>lider-p2.txt</code></td></tr>
+      <tr><td>Réplica 1</td><td>p0, p1</td><td><code>replica-1-p0.txt</code> · <code>replica-1-p1.txt</code></td></tr>
+      <tr><td>Réplica 2</td><td>p1, p2</td><td><code>replica-2-p1.txt</code> · <code>replica-2-p2.txt</code></td></tr>
+      <tr><td>Réplica 3</td><td>p2, p0</td><td><code>replica-3-p2.txt</code> · <code>replica-3-p0.txt</code></td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">A ordem de arranque é: réplicas, líderes e, por último, produtor. Cada partição encontra-se em exatamente duas réplicas, pelo que a falha de uma única réplica não torna nenhuma partição indisponível.</p>
+</section>
+
+<section>
+  <h2><span class="n">10</span>Limitações da arquitetura</h2>
+  <ul class="limits">
+    <li>As perdas no troço produtor → líder não são detetadas, por ausência de numeração nesse troço.</li>
+    <li>A perda dos últimos registos de uma série só é detetada após a receção de mais de dez registos posteriores.</li>
+    <li>A falha de um líder impede a escrita na respetiva partição e a recuperação das suas réplicas; o sistema não contempla eleição de líder nem consenso.</li>
+    <li>Não existe ordem entre partições: cada partição possui uma sequência própria e os respetivos números não são comparáveis.</li>
+    <li>Uma chave muito frequente (80 % das leituras de S01) concentra a carga numa única partição.</li>
+    <li>A alteração de N reatribui a maioria dos sensores a outra partição, invalidando a correspondência dos ficheiros existentes.</li>
+    <li>Não há verificação de origem: um processo arbitrário pode publicar um <code>REG</code> com um endereço falso e desviar os pedidos de recuperação.</li>
+  </ul>
+</section>
+</div>
+
+<!--claude-mermaid-runtime-begin:3477-->
+<style>.mermaid-diagram{margin-block:4px}.mermaid-diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}</style>
+<script src="/_runtime/mermaid-11.16.1.min.js"></script>
+<script>(function(){
+var CFG={"palettes":{"light":{"surface":"#f4efe4","text":"#42392e","line":"#8a7f6d","border":"#7a6c52","bg":"#fffdf8"},"dark":{"surface":"#262b34","text":"#f2f3f5","line":"#a8adb8","border":"#9aa4b8","bg":"#1f232b"}}};
+if(typeof mermaid==='undefined')return;
+var pres=Array.prototype.slice.call(document.querySelectorAll('pre.mermaid')).filter(function(p){if(p.hasAttribute('data-claude-mermaid-claimed'))return false;p.setAttribute('data-claude-mermaid-claimed','1');return true;});
+if(!pres.length)return;
+var mq=window.matchMedia?window.matchMedia('(prefers-color-scheme: dark)'):null;
+var root=document.documentElement;
+var items=pres.map(function(pre){
+var mount=document.createElement('div');mount.className='mermaid-diagram';
+return {pre:pre,mount:mount,src:pre.textContent||''};
+});
+var seq=0;
+var renderGen=0;
+var lastKey='';
+function pageBg(fallback){
+var els=[document.body,document.documentElement];
+for(var i=0;i<els.length;i++){
+var c=els[i]&&getComputedStyle(els[i]).backgroundColor;
+if(c&&c!=='transparent'&&c!=='rgba(0, 0, 0, 0)')return c;
+}
+return fallback;
+}
+function render(){
+var theme=root.getAttribute('data-theme');
+var dark=theme==='dark'||(!!(mq&&mq.matches)&&theme!=='light');
+var pal=dark?CFG.palettes.dark:CFG.palettes.light;
+var bg=pageBg(pal.bg);
+var key=(dark?'d':'l')+'|'+bg;
+if(key===lastKey)return;
+lastKey=key;
+var gen=++renderGen;
+var font=getComputedStyle(document.body).fontFamily||'sans-serif';
+var nat={useMaxWidth:false};
+mermaid.initialize({
+startOnLoad:false,securityLevel:'strict',theme:'base',
+flowchart:nat,sequence:nat,er:nat,state:nat,class:nat,pie:nat,
+gantt:nat,journey:nat,timeline:nat,gitGraph:nat,mindmap:nat,xyChart:nat,
+quadrantChart:nat,sankey:nat,c4:nat,requirement:nat,block:nat,
+packet:nat,kanban:nat,architecture:nat,radar:nat,
+themeVariables:{background:bg,mainBkg:pal.surface,primaryColor:pal.surface,
+primaryTextColor:pal.text,lineColor:pal.line,primaryBorderColor:pal.border,
+nodeBorder:pal.border,clusterBorder:pal.border,edgeLabelBackground:bg,
+clusterBkg:'rgba(127,127,127,0.07)',titleColor:pal.text,
+darkMode:dark,rowOdd:bg,rowEven:'rgba(127,127,127,0.07)',
+attributeBackgroundColorOdd:bg,attributeBackgroundColorEven:'rgba(127,127,127,0.07)',
+fontSize:'16px',fontFamily:font},
+themeCSS:'.node rect, .node circle, .node polygon, .node path, .cluster rect { stroke-width: 2px; }'
+});
+items.forEach(function(it){
+var id='claude-mermaid-'+seq++;
+mermaid.render(id,it.src).then(function(r){
+if(gen!==renderGen)return;
+var prev=it.pre.previousElementSibling;
+if(prev&&prev.className==='mermaid-diagram'&&prev!==it.mount)return;
+it.mount.innerHTML=r.svg;
+if(!it.mount.parentNode)it.pre.parentNode.insertBefore(it.mount,it.pre);
+it.pre.style.display='none';
+},function(){
+var scratch=document.getElementById(id);
+if(scratch)scratch.parentNode.removeChild(scratch);
+scratch=document.getElementById('d'+id);
+if(scratch)scratch.parentNode.removeChild(scratch);
+if(gen!==renderGen)return;
+if(it.mount.parentNode)it.mount.parentNode.removeChild(it.mount);
+it.pre.style.display='';
+});
+});
+}
+render();
+if(mq&&mq.addEventListener)mq.addEventListener('change',render);
+if(typeof MutationObserver!=='undefined')new MutationObserver(render).observe(root,{attributes:true,attributeFilter:['data-theme']});
+})();</script>
+<!--claude-mermaid-runtime-end-->
+
+</body></html>
