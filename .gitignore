@@ -1,4 +1,5 @@
 .clawdea/REPO_STATE.md,
 bin/,
+out/
 *.class ,
 .vscode/,
