@@ -1,5 +1,14 @@
 # Guia do Estudante
 
+Sprints/E1-COMINDIR02/rep02-produtor/src/rep02/Partitioner.java — calcula a partição a partir do ID do sensor.
+
+Sprints/E1-COMINDIR02/rep02-produtor/src/rep02/Producer.java — escolhe o tópico da partição e publica a leitura.
+
+Sprints/E1-COMINDIR02/rep02-lider/src/rep02/PartitionLeader.java — recebe as leituras, atribui sequências, grava os registos e responde aos pedidos de recuperação TCP.
+
+Sprints/E1-COMINDIR02/rep02-replica/src/rep02/PartitionReplica.java — recebe e ordena os registos, deteta lacunas e pede os dados em falta ao líder.
+
+Sprints/E1-COMINDIR02/rep02-lider/src/rep02/RecordFile.java — grava e lê intervalos de registos usados na recuperação.
 Este repositório contém os exercícios e tarefas da disciplina. Segue este guia para configurar a tua área de trabalho local, resolver as tarefas e submetê-las para avaliação.
 
 > **Modelo de trabalho:** *fork* + *branch* por tarefa + *Pull Request*. Cada estudante trabalha na sua cópia pessoal do repositório e submete o trabalho através de um Pull Request para o repositório do docente.
