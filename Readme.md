@@ -8,6 +8,14 @@ Sprints/E1-COMINDIR02/rep02-lider/src/rep02/PartitionLeader.java — recebe as l
 
 Sprints/E1-COMINDIR02/rep02-replica/src/rep02/PartitionReplica.java — recebe e ordena os registos, deteta lacunas e pede os dados em falta ao líder.
 
+rep02-produtor/src/rep02/Wire.java, rep02-lider/src/rep02/Wire.java e rep02-replica/src/rep02/Wire.java — definem os nomes dos tópicos, os formatos das mensagens (IN e REG) e os parâmetros de comunicação TCP.
+
+rep02-produtor/src/rep02/SensorRecord.java, rep02-lider/src/rep02/SensorRecord.java e rep02-replica/src/rep02/SensorRecord.java — representam os dados de uma leitura, como sequência, sensor, temperatura e instante.
+
+
+rep02-lider/src/rep02/RecordFile.java — persiste os registos do líder e permite consultar sequências para responder a pedidos de recuperação.
+
+Sprints/E1-COMINDIR02/rep02-replica/src/rep02/PartitionCheck.java — verifica, após os testes, se os ficheiros de líderes e réplicas têm sequências e dados consistentes.
 Sprints/E1-COMINDIR02/rep02-lider/src/rep02/RecordFile.java — grava e lê intervalos de registos usados na recuperação.
 Este repositório contém os exercícios e tarefas da disciplina. Segue este guia para configurar a tua área de trabalho local, resolver as tarefas e submetê-las para avaliação.
 
