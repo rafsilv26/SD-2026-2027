@@ -56,6 +56,7 @@ public class PartitionLeader {
         }
     }
 
+    //Cria as duas threads, de entrada(subscrição) + principal(pedido TCP)
     private void run(int port) throws IOException {
         try (ServerSocket server = new ServerSocket(port)) {
             Thread input = new Thread(this::subscribe, "rep02-leader-input-p" + partition);

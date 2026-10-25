@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>COMINDIR02 · Animação</title>
+<style>
+  :root {
+    --bg: #f7f6f2; --panel: #ffffff; --ink: #1f1e1b; --quiet: #6b6860; --line: #d6d3ca; --grid: #ebe8e0;
+    --p0: #2f6fdb; --p1: #1f9d6b; --p2: #d9822b; --in: #8a867c; --tcp: #b0367a; --bad: #c8322b; --ok: #1f9d6b;
+    --tint: #efede6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1b1a18; --panel: #252421; --ink: #ecebe6; --quiet: #a39f95; --line: #4a4740; --grid: #33312d;
+      --p0: #6d9cf0; --p1: #4cc596; --p2: #f0a35a; --in: #9c978c; --tcp: #e06aad; --bad: #ef6a5f; --ok: #4cc596;
+      --tint: #2e2c28;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--quiet); margin: 0 0 16px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 8px; padding: 5px 10px; cursor: pointer; }
+  button:hover { border-color: var(--quiet); }
+  button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  button.off { border-color: var(--bad); color: var(--bad); }
+  label { display: inline-flex; align-items: center; gap: 6px; color: var(--quiet); }
+  input[type=range] { width: 110px; }
+  .sep { width: 1px; align-self: stretch; background: var(--line); }
+  .stage { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  svg { display: block; width: 100%; height: auto; }
+  .caption { border-top: 1px solid var(--line); padding: 10px 14px; min-height: 44px; color: var(--ink); }
+  .caption b { color: var(--tcp); }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+  @media (max-width: 820px) { .cols { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .card h2 { font-size: 15px; margin: 0 0 8px; }
+  #log { list-style: none; margin: 0; padding: 0; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; max-height: 300px; overflow: auto; }
+  #log li { padding: 1px 0; border-bottom: 1px dashed var(--grid); }
+  #log .t { color: var(--quiet); margin-right: 6px; }
+  #log .bad { color: var(--bad); } #log .tcp { color: var(--tcp); } #log .ok { color: var(--ok); } #log .q { color: var(--quiet); }
+  ol { margin: 0; padding-left: 20px; } ol li { margin-bottom: 6px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; color: var(--quiet); font-size: 12.5px; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+  code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--tint); padding: 0 4px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>COMINDIR02 · Particionamento e recuperação com publish/subscribe</h1>
+  <p class="sub">Três partições (N = 3), cada uma com um líder, um tópico de dados e duas réplicas (R = 2). As réplicas recuperam por TCP quando acumulam mais de 10 registos retidos numa partição.</p>
+
+  <div class="controls">
+    <button id="bPlay" class="on">Pausa</button>
+    <button id="bAuto" class="on">Leituras automáticas</button>
+    <button id="bOne">1 leitura</button>
+    <button id="bBurst">Rajada de 40</button>
+    <span class="sep"></span>
+    <label>Perda no PubSub <input id="sLoss" type="range" min="0" max="50" value="15"><span id="vLoss">15 %</span></label>
+    <label>Velocidade <input id="sSpeed" type="range" min="25" max="300" value="100"><span id="vSpeed">1,0×</span></label>
+    <span class="sep"></span>
+    <button id="bR0">Parar réplica 1</button>
+    <button id="bR1">Parar réplica 2</button>
+    <button id="bR2">Parar réplica 3</button>
+    <span class="sep"></span>
+    <button id="bReset">Reiniciar</button>
+  </div>
+
+  <div class="stage">
+    <svg id="svg" viewBox="0 0 1000 590" role="img" aria-label="Animação do produtor, líderes de partição, tópicos e réplicas, com recuperação por TCP"></svg>
+    <div class="caption" id="caption">As leituras entram pelo produtor, que calcula a partição de cada sensor com <code>floorMod(hashCode, 3)</code>.</div>
+  </div>
+
+  <div class="cols">
+    <div class="card">
+      <h2>Registo de eventos</h2>
+      <ul id="log"></ul>
+    </div>
+    <div class="card">
+      <h2>O que a animação mostra</h2>
+      <ol>
+        <li>O <b>produtor</b> calcula a partição do sensor e publica <code>IN;sensor;temperatura</code> no tópico <code>rep02-in-p&lt;k&gt;</code>.</li>
+        <li>O <b>líder</b> da partição atribui o número de sequência seguinte, acrescenta o registo a <code>lider-p&lt;k&gt;.txt</code> e publica <code>REG;127.0.0.1;700k;seq;…</code> em <code>rep02-p&lt;k&gt;</code>. O endereço e o porto seguem em todas as mensagens.</li>
+        <li>Cada <b>réplica</b> aplica a regra da COMINDIR01: escreve o registo esperado, ignora duplicados e retém em memória os que chegam fora de ordem (quadrados preenchidos). A réplica aprende o endereço do líder com a primeira mensagem recebida.</li>
+        <li>Quando há <b>mais de 10 retidos</b> numa partição, a réplica abre uma ligação <b>TCP</b> ao endereço anunciado e envia <code>PEDIDO de até</code>. O líder responde com os registos lidos do seu ficheiro e <code>FIM</code>. Durante a recuperação, as mensagens do PubSub dessa partição ficam em fila.</li>
+        <li>Uma réplica parada perde as mensagens e a memória; ao arrancar, retém o que recebe e recupera o histórico em falta quando ultrapassa o limite. Perdas no fim de uma série só são recuperadas quando chegarem mais de 10 registos posteriores.</li>
+      </ol>
+      <div class="legend">
+        <span><span class="dot" style="background:var(--in)"></span>IN (produtor → líder)</span>
+        <span><span class="dot" style="background:var(--p0)"></span>REG p0</span>
+        <span><span class="dot" style="background:var(--p1)"></span>REG p1</span>
+        <span><span class="dot" style="background:var(--p2)"></span>REG p2</span>
+        <span><span class="dot" style="background:var(--tcp)"></span>TCP de recuperação</span>
+        <span style="color:var(--bad)">× mensagem perdida</span>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+(() => {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.getElementById('svg');
+  const N = 3, LIM = 10, PORT = 7000, HOST = '127.0.0.1';
+  const COL = ['var(--p0)', 'var(--p1)', 'var(--p2)'];
+  const Y = [140, 300, 460];
+  const ASSIGN = [[0, 1], [1, 2], [2, 0]];
+  const ROW_OFF = [-8, 34];
+
+  // geometria
+  const PROD = { x: 30, w: 100, y: 300 };
+  const INT = { cx: 250, w: 130 };
+  const LEAD = { x: 345, w: 155 };
+  const DATT = { cx: 600, w: 120 };
+  const REP = { x: 720, w: 260, h: 118 };
+
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function txt(x, y, s, attrs, parent) {
+    const t = el('text', Object.assign({ x, y, fill: 'var(--ink)', 'font-size': 13 }, attrs || {}), parent);
+    t.textContent = s;
+    return t;
+  }
+
+  // hashCode de String do Java e floorMod
+  function jhash(s) { let h = 0; for (const c of s) h = (Math.imul(h, 31) + c.charCodeAt(0)) | 0; return h; }
+  const partOf = s => ((jhash(s) % N) + N) % N;
+
+  // caminhos (polilinhas) e interpolação
+  function poly(pts) {
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+    return { pts, cum, total: cum[cum.length - 1] };
+  }
+  function pointAt(p, t) {
+    const d = Math.max(0, Math.min(1, t)) * p.total;
+    let i = 1;
+    while (i < p.cum.length - 1 && p.cum[i] < d) i++;
+    const seg = p.cum[i] - p.cum[i - 1] || 1, f = (d - p.cum[i - 1]) / seg;
+    const a = p.pts[i - 1], b = p.pts[i];
+    return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+  }
+  function arcPts(x1, y1, x2, y2, cx, cy) {
+    const out = [];
+    for (let i = 0; i <= 28; i++) {
+      const t = i / 28, u = 1 - t;
+      out.push([u * u * x1 + 2 * u * t * cx + t * t * x2, u * u * y1 + 2 * u * t * cy + t * t * y2]);
+    }
+    return out;
+  }
+  const inPath = k => poly([[PROD.x + PROD.w, PROD.y], [INT.cx - INT.w / 2, Y[k]], [INT.cx + INT.w / 2, Y[k]], [LEAD.x, Y[k]]]);
+  const repRowY = (r, k) => Y[r] + ROW_OFF[ASSIGN[r].indexOf(k)];
+  const regPath = (k, r) => poly([[LEAD.x + LEAD.w, Y[k]], [DATT.cx - DATT.w / 2, Y[k]], [DATT.cx + DATT.w / 2, Y[k]], [REP.x, repRowY(r, k)]]);
+  function tcpPts(r, k) {
+    const x1 = REP.x, y1 = repRowY(r, k), x2 = LEAD.x + LEAD.w / 2, y2 = Y[k] + 36;
+    const cy = Math.min(575, Math.max(y1, y2) + 70);
+    return arcPts(x1, y1, x2, y2, (x1 + x2) / 2, cy);
+  }
+
+  // camadas
+  let gGuides, gStatic, gTcp, gParts;
+  const ui = { leaders: [], reps: [] };
+
+  // estado
+  let S;
+  function freshState() {
+    return {
+      time: 0, timers: [], particles: [], autoAcc: 0,
+      leaders: Array.from({ length: N }, () => ({ seq: 0, file: [] })),
+      reps: ASSIGN.map(parts => ({
+        online: true,
+        parts: Object.fromEntries(parts.map(k => [k, { last: 0, retained: new Set(), recovering: false, queue: [], addr: null, recId: 0, arc: null }]))
+      }))
+    };
+  }
+
+  function build() {
+    svg.innerHTML = '';
+    const defs = el('defs', {}, svg);
+    const m = el('marker', { id: 'arr', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 6, markerHeight: 6, orient: 'auto-start-reverse' }, defs);
+    el('path', { d: 'M0 0L10 5L0 10z', fill: 'var(--line)' }, m);
+
+    // títulos das colunas
+    const hy = 40;
+    txt(PROD.x + PROD.w / 2, hy, 'produtor', { 'text-anchor': 'middle', fill: 'var(--quiet)', 'font-size': 12 }, svg);
+    txt(INT.cx, hy, 'tópicos de entrada', { 'text-anchor': 'middle', fill: 'var(--quiet)', 'font-size': 12 }, svg);
+    txt(LEAD.x + LEAD.w / 2, hy, 'líderes de partição', { 'text-anchor': 'middle', fill: 'var(--quiet)', 'font-size': 12 }, svg);
+    txt(DATT.cx, hy, 'tópicos de dados', { 'text-anchor': 'middle', fill: 'var(--quiet)', 'font-size': 12 }, svg);
+    txt(REP.x + REP.w / 2, hy, 'réplicas (R = 2)', { 'text-anchor': 'middle', fill: 'var(--quiet)', 'font-size': 12 }, svg);
+    txt(500, 70, 'gossipsub do IPFS: as mensagens podem perder-se ou chegar fora de ordem', { 'text-anchor': 'middle', fill: 'var(--quiet)', 'font-size': 11 }, svg);
+
+    gGuides = el('g', { fill: 'none', stroke: 'var(--line)', 'stroke-width': 1.2 }, svg);
+    for (let k = 0; k < N; k++) {
+      el('polyline', { points: inPath(k).pts.map(p => p.join(',')).join(' '), 'marker-end': 'url(#arr)' }, gGuides);
+      for (let r = 0; r < N; r++) if (ASSIGN[r].includes(k))
+        el('polyline', { points: regPath(k, r).pts.map(p => p.join(',')).join(' '), 'marker-end': 'url(#arr)' }, gGuides);
+    }
+    gTcp = el('g', {}, svg);
+    gStatic = el('g', {}, svg);
+
+    // produtor
+    el('rect', { x: PROD.x, y: PROD.y - 32, width: PROD.w, height: 64, rx: 8, fill: 'var(--panel)', stroke: 'var(--line)', 'stroke-width': 1.25 }, gStatic);
+    txt(PROD.x + PROD.w / 2, PROD.y - 6, 'Produtor', { 'text-anchor': 'middle', 'font-weight': 600 }, gStatic);
+    txt(PROD.x + PROD.w / 2, PROD.y + 12, 'calcula k', { 'text-anchor': 'middle', fill: 'var(--quiet)', 'font-size': 11 }, gStatic);
+
+    ui.leaders = []; ui.reps = [];
+    for (let k = 0; k < N; k++) {
+      // tópicos
+      el('rect', { x: INT.cx - INT.w / 2, y: Y[k] - 16, width: INT.w, height: 32, rx: 16, fill: 'var(--tint)', stroke: 'var(--line)' }, gStatic);
+      txt(INT.cx, Y[k] + 4, 'rep02-in-p' + k, { 'text-anchor': 'middle', 'font-size': 12 }, gStatic);
+      el('rect', { x: DATT.cx - DATT.w / 2, y: Y[k] - 16, width: DATT.w, height: 32, rx: 16, fill: 'var(--tint)', stroke: COL[k] }, gStatic);
+      txt(DATT.cx, Y[k] + 4, 'rep02-p' + k, { 'text-anchor': 'middle', 'font-size': 12 }, gStatic);
+      // líder
+      const box = el('rect', { x: LEAD.x, y: Y[k] - 36, width: LEAD.w, height: 72, rx: 8, fill: 'var(--panel)', stroke: COL[k], 'stroke-width': 1.5 }, gStatic);
+      txt(LEAD.x + LEAD.w / 2, Y[k] - 14, 'Líder p' + k, { 'text-anchor': 'middle', 'font-weight': 600 }, gStatic);
+      const seqT = txt(LEAD.x + LEAD.w / 2, Y[k] + 4, '', { 'text-anchor': 'middle', 'font-size': 11.5 }, gStatic);
+      txt(LEAD.x + LEAD.w / 2, Y[k] + 22, 'TCP ' + HOST + ':' + (PORT + k), { 'text-anchor': 'middle', 'font-size': 11, fill: 'var(--quiet)' }, gStatic);
+      ui.leaders.push({ box, seqT, flash: 0 });
+    }
+    for (let r = 0; r < N; r++) {
+      const g = el('g', {}, gStatic);
+      const box = el('rect', { x: REP.x, y: Y[r] - 62, width: REP.w, height: REP.h + 6, rx: 8, fill: 'var(--panel)', stroke: 'var(--line)', 'stroke-width': 1.25 }, g);
+      const title = txt(REP.x + 12, Y[r] - 42, 'Réplica ' + (r + 1), { 'font-weight': 600 }, g);
+      const state = txt(REP.x + REP.w - 12, Y[r] - 42, '', { 'text-anchor': 'end', 'font-size': 11, fill: 'var(--quiet)' }, g);
+      const rows = {};
+      for (const k of ASSIGN[r]) {
+        const ry = repRowY(r, k);
+        const l1 = txt(REP.x + 12, ry - 2, '', { 'font-size': 11.5 }, g);
+        const l2 = txt(REP.x + 12, ry + 14, '', { 'font-size': 11, fill: 'var(--quiet)' }, g);
+        const sq = [];
+        for (let i = 0; i < 11; i++)
+          sq.push(el('rect', { x: REP.x + 112 + i * 11, y: ry + 6, width: 9, height: 9, rx: 2, fill: 'none', stroke: 'var(--line)' }, g));
+        el('line', { x1: REP.x + 112 + 10 * 11 - 1, x2: REP.x + 112 + 10 * 11 - 1, y1: ry + 3, y2: ry + 18, stroke: 'var(--bad)', 'stroke-width': 1.5 }, g);
+        rows[k] = { l1, l2, sq };
+      }
+      ui.reps.push({ box, title, state, rows });
+    }
+    gParts = el('g', {}, svg);
+    render();
+  }
+
+  // eventos agendados e partículas
+  function schedule(delay, fn) { S.timers.push({ at: S.time + delay, fn }); }
+  function spawn(path, dur, color, label, onArrive, opts) {
+    opts = opts || {};
+    const g = el('g', {}, gParts);
+    const c = opts.square
+      ? el('rect', { x: -5, y: -5, width: 10, height: 10, rx: 2, fill: color }, g)
+      : el('circle', { r: opts.r || 6, fill: color }, g);
+    let t = null;
+    if (label) t = txt(0, -9, label, { 'text-anchor': 'middle', 'font-size': 10.5, fill: color, 'font-weight': 600 }, g);
+    S.particles.push({ path, dur, t: 0, g, onArrive, lossAt: opts.lossAt, onLost: opts.onLost, dead: false, fade: -1 });
+  }
+  function stepParticles(dt) {
+    for (const p of S.particles) {
+      if (p.fade >= 0) {
+        p.fade += dt;
+        p.g.setAttribute('opacity', Math.max(0, 1 - p.fade / 0.8));
+        if (p.fade > 0.8) { p.dead = true; p.g.remove(); }
+        continue;
+      }
+      p.t += dt / p.dur;
+      if (p.lossAt != null && p.t >= p.lossAt) {
+        const [x, y] = pointAt(p.path, p.lossAt);
+        p.g.innerHTML = '';
+        p.g.setAttribute('transform', `translate(${x},${y})`);
+        txt(0, 5, '×', { 'text-anchor': 'middle', 'font-size': 18, fill: 'var(--bad)', 'font-weight': 700 }, p.g);
+        p.fade = 0;
+        if (p.onLost) p.onLost();
+        continue;
+      }
+      if (p.t >= 1) { p.dead = true; p.g.remove(); if (p.onArrive) p.onArrive(); continue; }
+      const [x, y] = pointAt(p.path, p.t);
+      p.g.setAttribute('transform', `translate(${x},${y})`);
+    }
+    S.particles = S.particles.filter(p => !p.dead);
+  }
+
+  // registo de eventos
+  const logEl = document.getElementById('log');
+  const caption = document.getElementById('caption');
+  let logs = [];
+  function log(s, cls) {
+    logs.unshift({ t: S.time.toFixed(1), s, cls: cls || '' });
+    if (logs.length > 120) logs.length = 120;
+    logEl.innerHTML = logs.slice(0, 60).map(l => `<li class="${l.cls}"><span class="t">${l.t}s</span>${l.s}</li>`).join('');
+  }
+  function say(html) { caption.innerHTML = html; }
+
+  // produtor
+  function produce() {
+    const n = 1 + Math.floor(Math.random() * 20);
+    const sensor = 'S' + String(n).padStart(2, '0');
+    const temp = (15 + Math.random() * 15).toFixed(1);
+    const k = partOf(sensor);
+    log(`Produtor: IN ${sensor} ${temp} → p${k}`, 'q');
+    spawn(inPath(k), 0.9, 'var(--in)', null, () => leaderReceive(k, sensor, temp), { r: 5 });
+  }
+
+  // líder
+  function leaderReceive(k, sensor, temp) {
+    const L = S.leaders[k];
+    L.seq++;
+    L.file.push({ seq: L.seq, sensor, temp });
+    ui.leaders[k].flash = 0.35;
+    const seq = L.seq;
+    for (let r = 0; r < N; r++) if (ASSIGN[r].includes(k)) sendReg(k, r, seq);
+  }
+  function sendReg(k, r, seq) {
+    const loss = Number(document.getElementById('sLoss').value) / 100;
+    const lost = Math.random() < loss;
+    spawn(regPath(k, r), 1.0 + Math.random() * 0.8, COL[k], String(seq), () => replicaReceive(r, k, seq), {
+      lossAt: lost ? 0.82 : null,
+      onLost: () => log(`R${r + 1}/p${k}: REG ${seq} perdido na rede`, 'bad')
+    });
+  }
+
+  // réplica
+  function replicaReceive(r, k, seq) {
+    const R = S.reps[r], P = R.parts[k];
+    if (!R.online) { log(`R${r + 1}/p${k}: parada, REG ${seq} não recebido`, 'bad'); return; }
+    P.addr = HOST + ':' + (PORT + k);
+    if (P.recovering) { P.queue.push(seq); return; }
+    apply(r, k, seq, 'pubsub');
+  }
+  function apply(r, k, seq, src) {
+    const P = S.reps[r].parts[k];
+    if (seq <= P.last || P.retained.has(seq)) { if (src === 'pubsub') log(`R${r + 1}/p${k}: DUPLICADO ${seq}`, 'q'); return; }
+    if (seq === P.last + 1) {
+      P.last = seq;
+      if (src === 'tcp') log(`R${r + 1}/p${k}: RECUPERADO ${seq}`, 'tcp');
+      drain(P);
+      return;
+    }
+    P.retained.add(seq);
+    log(`R${r + 1}/p${k}: EM ESPERA ${seq} (falta ${P.last + 1}) · retidos ${P.retained.size}`);
+    if (P.retained.size > LIM && !P.recovering && src === 'pubsub') recover(r, k);
+  }
+  function drain(P) { while (P.retained.has(P.last + 1)) { P.retained.delete(P.last + 1); P.last++; } }
+
+  function recover(r, k) {
+    const P = S.reps[r].parts[k];
+    const a = P.last + 1, b = Math.min(...P.retained) - 1;
+    P.recovering = true;
+    const id = ++P.recId;
+    const pts = tcpPts(r, k);
+    P.arc = el('polyline', { points: pts.map(p => p.join(',')).join(' '), fill: 'none', stroke: 'var(--tcp)', 'stroke-width': 1.6, 'stroke-dasharray': '6 4' }, gTcp);
+    const there = poly(pts), back = poly(pts.slice().reverse());
+    log(`R${r + 1}/p${k}: RECUPERAÇÃO ${a}..${b} pedida a ${P.addr} (${P.retained.size} retidos)`, 'tcp');
+    say(`<b>Recuperação:</b> a réplica ${r + 1} tem ${P.retained.size} registos retidos na partição ${k} (limite ${LIM}). Abre uma ligação TCP a <code>${P.addr}</code>, endereço anunciado nas mensagens, e envia <code>PEDIDO ${a} ${b}</code>.`);
+    const alive = () => S.reps[r].online && P.recId === id;
+    spawn(there, 0.8, 'var(--tcp)', `PEDIDO ${a} ${b}`, () => {
+      if (!alive()) return;
+      const recs = S.leaders[k].file.filter(x => x.seq >= a && x.seq <= b);
+      log(`Líder p${k}: RECUPERAÇÃO ${a}..${b} para R${r + 1} (${recs.length} registos)`, 'tcp');
+      ui.leaders[k].flash = 0.5;
+      say(`<b>Resposta do líder ${k}:</b> lê os registos ${a} a ${b} de <code>lider-p${k}.txt</code> e envia-os, por ordem, na mesma ligação, seguidos de <code>FIM</code>. As mensagens do PubSub que chegam entretanto à réplica ficam em fila.`);
+      const step = Math.min(0.14, 2.4 / Math.max(1, recs.length));
+      recs.forEach((x, i) => schedule(i * step, () => {
+        if (!alive()) return;
+        spawn(back, 0.7, 'var(--tcp)', String(x.seq), () => { if (alive()) apply(r, k, x.seq, 'tcp'); }, { square: true });
+      }));
+      schedule(recs.length * step + 0.05, () => {
+        if (!alive()) return;
+        spawn(back, 0.7, 'var(--tcp)', 'FIM', () => { if (alive()) finish(r, k); }, { r: 4 });
+      });
+    });
+  }
+  function finish(r, k) {
+    const P = S.reps[r].parts[k];
+    P.recovering = false;
+    if (P.arc) { P.arc.remove(); P.arc = null; }
+    drain(P);
+    const q = P.queue; P.queue = [];
+    log(`R${r + 1}/p${k}: FIM recebido; último ${P.last}; ${q.length} mensagens em fila aplicadas`, 'ok');
+    say(`A réplica ${r + 1} fechou a ligação, escreveu os retidos que ficaram em sequência e aplicou as ${q.length} mensagens que aguardavam em fila. A partição ${k} está no registo ${P.last}.`);
+    for (const s of q) {
+      if (P.recovering) P.queue.push(s); else apply(r, k, s, 'pubsub');
+    }
+  }
+
+  function toggleReplica(r) {
+    const R = S.reps[r];
+    R.online = !R.online;
+    if (!R.online) {
+      for (const k in R.parts) {
+        const P = R.parts[k];
+        P.retained.clear(); P.queue = []; P.recovering = false; P.recId++;
+        if (P.arc) { P.arc.remove(); P.arc = null; }
+      }
+      log(`Réplica ${r + 1} parada: a memória (retidos e fila) perde-se; os ficheiros mantêm-se`, 'bad');
+      say(`A réplica ${r + 1} está parada. Não recebe as mensagens publicadas: o PubSub não as guarda.`);
+    } else {
+      const parts = Object.entries(R.parts).map(([k, P]) => `p${k}=${P.last}`).join(', ');
+      log(`Réplica ${r + 1} arrancada: lastSeq() ${parts}`, 'ok');
+      say(`A réplica ${r + 1} voltou a arrancar com os ficheiros em ${parts}. Vai reter o que receber e recuperar por TCP quando ultrapassar ${LIM} retidos.`);
+    }
+    syncButtons();
+  }
+
+  // desenho do estado
+  function render() {
+    for (let k = 0; k < N; k++) {
+      const L = S.leaders[k], u = ui.leaders[k];
+      u.seqT.textContent = `lider-p${k}.txt: ${L.seq} registos`;
+      u.box.setAttribute('stroke-width', u.flash > 0 ? 3 : 1.5);
+    }
+    for (let r = 0; r < N; r++) {
+      const R = S.reps[r], u = ui.reps[r];
+      u.box.setAttribute('stroke', R.online ? 'var(--line)' : 'var(--bad)');
+      u.box.setAttribute('stroke-dasharray', R.online ? '' : '5 4');
+      u.state.textContent = R.online ? 'em execução' : 'parada';
+      u.state.setAttribute('fill', R.online ? 'var(--quiet)' : 'var(--bad)');
+      for (const k of ASSIGN[r]) {
+        const P = R.parts[k], row = u.rows[k], L = S.leaders[k];
+        const eq = P.last === L.seq && P.retained.size === 0;
+        row.l1.textContent = `p${k}  ${P.last}/${L.seq} ${eq ? '✓' : '≠'}   líder: ${P.addr || '?'}`;
+        row.l1.setAttribute('fill', P.recovering ? 'var(--tcp)' : 'var(--ink)');
+        row.l2.textContent = P.recovering ? `TCP · fila ${P.queue.length}` : `retidos ${P.retained.size}`;
+        row.l2.setAttribute('fill', P.recovering ? 'var(--tcp)' : 'var(--quiet)');
+        const n = P.retained.size;
+        row.sq.forEach((s, i) => {
+          s.setAttribute('fill', i < n ? COL[k] : 'none');
+          s.setAttribute('stroke', i < n ? COL[k] : 'var(--line)');
+        });
+      }
+    }
+  }
+
+  // ciclo de animação
+  let playing = true, auto = true, lastTs = null;
+  function frame(ts) {
+    if (lastTs == null) lastTs = ts;
+    const speed = Number(document.getElementById('sSpeed').value) / 100;
+    const dt = playing ? Math.min(0.05, (ts - lastTs) / 1000) * speed : 0;
+    lastTs = ts;
+    if (dt > 0) {
+      S.time += dt;
+      if (auto) { S.autoAcc += dt; while (S.autoAcc > 0.45) { S.autoAcc -= 0.45; produce(); } }
+      const due = S.timers.filter(t => t.at <= S.time);
+      S.timers = S.timers.filter(t => t.at > S.time);
+      due.sort((a, b) => a.at - b.at).forEach(t => t.fn());
+      stepParticles(dt);
+      ui.leaders.forEach(u => { if (u.flash > 0) u.flash -= dt; });
+      render();
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // controlos
+  const $ = id => document.getElementById(id);
+  function syncButtons() {
+    $('bPlay').textContent = playing ? 'Pausa' : 'Continuar';
+    $('bPlay').classList.toggle('on', playing);
+    $('bAuto').classList.toggle('on', auto);
+    for (let r = 0; r < N; r++) {
+      const b = $('bR' + r), on = S.reps[r].online;
+      b.textContent = (on ? 'Parar' : 'Arrancar') + ' réplica ' + (r + 1);
+      b.classList.toggle('off', !on);
+    }
+  }
+  $('bPlay').onclick = () => { playing = !playing; syncButtons(); };
+  $('bAuto').onclick = () => { auto = !auto; syncButtons(); };
+  $('bOne').onclick = () => produce();
+  $('bBurst').onclick = () => { for (let i = 0; i < 40; i++) schedule(i * 0.06, produce); log('Produtor: rajada de 40 leituras', 'q'); };
+  for (let r = 0; r < N; r++) $('bR' + r).onclick = () => toggleReplica(r);
+  $('sLoss').oninput = e => $('vLoss').textContent = e.target.value + ' %';
+  $('sSpeed').oninput = e => $('vSpeed').textContent = (e.target.value / 100).toFixed(1).replace('.', ',') + '×';
+  $('bReset').onclick = () => { reset(); };
+
+  function reset() {
+    S = freshState();
+    logs = []; logEl.innerHTML = '';
+    build();
+    say('As leituras entram pelo produtor, que calcula a partição de cada sensor com <code>floorMod(hashCode, 3)</code>.');
+    syncButtons();
+  }
+  reset();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

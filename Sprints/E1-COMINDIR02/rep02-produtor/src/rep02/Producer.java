@@ -121,6 +121,7 @@ public class Producer {
         }
     }
 
+    //Zona de escolha da partição
     private long publishReading(String sensor, double temperature, IpfsPubSub pubSub,
                                 Partitioner partitioner)
             throws IOException, InterruptedException {
