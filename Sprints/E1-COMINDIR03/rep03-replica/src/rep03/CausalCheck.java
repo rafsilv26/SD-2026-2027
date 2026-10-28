@@ -106,6 +106,9 @@ public class CausalCheck {
             Event a = events.get(i);
             for (int j = i + 1; j < events.size(); j++) {
                 Event b = events.get(j);
+                if (a.partition == b.partition) {
+                    continue; // só interessam pares de partições diferentes
+                }
                 switch (a.vector.compare(b.vector)) {
                     case BEFORE:
                         causal++;
