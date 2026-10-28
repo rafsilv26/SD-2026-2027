@@ -27,6 +27,11 @@ public class VectorClock {
         return v[k];
     }
 
+    // número de posições (N)
+    public int size() {
+        return v.length;
+    }
+
     // fica com o maior de cada posição; recusa vetores de tamanho diferente
     public void merge(VectorClock outro) {
         verificaTamanho(outro);

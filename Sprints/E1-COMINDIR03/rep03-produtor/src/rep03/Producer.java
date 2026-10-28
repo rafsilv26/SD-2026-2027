@@ -127,7 +127,9 @@ public class Producer {
             throws IOException, InterruptedException {
         int partition = partitioner.of(sensor);
         long publishedAt = System.currentTimeMillis();
-        pubSub.publish(Wire.topicIn(partition), Wire.in(sensor, temperature));
+        // o produtor não observa registos: envia sempre L = 0 e V = (0,...,0)
+        pubSub.publish(Wire.topicIn(partition),
+                Wire.in(sensor, temperature, 0, new VectorClock(partitioner.count())));
         System.out.println("Publicado IN em p" + partition + ": "
                 + sensor + ";" + temperature);
         return publishedAt;

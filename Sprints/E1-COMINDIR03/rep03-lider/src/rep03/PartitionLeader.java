@@ -14,21 +14,45 @@ public class PartitionLeader {
     private static final String DEFAULT_API = "http://127.0.0.1:5001/api/v0";
 
     private final int partition;
+    private final int partitions;
     private final Partitioner partitioner;
     private final String advertisedHost;
     private final IpfsPubSub pubSub;
     private final RecordFile file;
     private final Object stateLock = new Object();
+    // estado protegido por stateLock: seq, L e V mudam sempre juntos
     private long lastSeq;
+    private long lamport;
+    private VectorClock vector;
 
     private PartitionLeader(int partition, int partitions, String advertisedHost, String api)
             throws IOException {
         this.partition = partition;
+        this.partitions = partitions;
         this.partitioner = new Partitioner(partitions);
         this.advertisedHost = advertisedHost;
         this.pubSub = new IpfsPubSub(api);
         this.file = new RecordFile("lider-p" + partition + ".txt");
-        this.lastSeq = file.lastSeq();
+        // arrancar com seq, L e V do último registo gravado (ou a zeros se não houver)
+        SensorRecord last = file.last();
+        if (last == null) {
+            this.lastSeq = 0;
+            this.lamport = 0;
+            this.vector = new VectorClock(partitions);
+        } else {
+            this.lastSeq = last.getSeq();
+            this.lamport = last.getLamport();
+            this.vector = last.getVector();
+            if (vector.size() != partitions) {
+                throw new IllegalArgumentException("o ficheiro " + "lider-p" + partition
+                        + ".txt tem vetores com " + vector.size() + " posições, mas N="
+                        + partitions);
+            }
+            if (vector.get(partition) != lastSeq) {
+                throw new IllegalArgumentException("o último registo do ficheiro viola V["
+                        + partition + "] = seq");
+            }
+        }
     }
 
     public static void main(String[] args) {
@@ -63,7 +87,8 @@ public class PartitionLeader {
             input.start();
             System.out.println("Líder p" + partition + " pronto; tópico="
                     + Wire.topicIn(partition) + "; recuperação="
-                    + advertisedHost + ":" + port);
+                    + advertisedHost + ":" + port
+                    + "; seq=" + lastSeq + "; L=" + lamport + "; V=" + vector);
             while (!Thread.currentThread().isInterrupted()) {
                 try (Socket socket = server.accept()) {
                     socket.setSoTimeout(Wire.T_TCP_MS);
@@ -97,14 +122,21 @@ public class PartitionLeader {
             if (!"IN".equals(Wire.type(message))) {
                 throw new IllegalArgumentException("tipo inesperado");
             }
+            // IN;sensor;temp;L;V
             String[] fields = Wire.body(message).split(";", -1);
-            if (fields.length != 2 || fields[0].isBlank()) {
+            if (fields.length != 4 || fields[0].isBlank()) {
                 throw new IllegalArgumentException("IN mal formado");
             }
             double temperature = Double.parseDouble(fields[1]);
             if (!Double.isFinite(temperature)) {
                 throw new IllegalArgumentException("temperatura não finita");
             }
+            long inLamport = Long.parseLong(fields[2]);
+            if (inLamport < 0) {
+                throw new IllegalArgumentException("L negativo");
+            }
+            // recusa vetores com dimensão diferente de N (ex.: produtor com N = 4)
+            VectorClock inVector = VectorClock.parse(fields[3], partitions);
             int actualPartition = partitioner.of(fields[0]);
             if (actualPartition != partition) {
                 System.out.println("PARTIÇÃO ERRADA: " + fields[0]
@@ -112,12 +144,31 @@ public class PartitionLeader {
                 return;
             }
             synchronized (stateLock) {
-                record = SensorRecord.now(lastSeq + 1, fields[0], temperature);
+                // calcula o estado novo em variáveis locais; só passa a valer
+                // depois do append, para um erro de escrita não deixar L/V avançados
+                long newLamport = Math.max(lamport, inLamport) + 1;   // regra de Lamport
+                VectorClock newVector = vector.copy();
+                newVector.merge(inVector);                            // máximo posição a posição
+                newVector.tick(partition);                            // evento deste líder
+                long seq = lastSeq + 1;
+                if (newVector.get(partition) != seq) {
+                    throw new IllegalStateException("V[" + partition + "]="
+                            + newVector.get(partition) + " diferente de seq=" + seq);
+                }
+                record = SensorRecord.now(seq, fields[0], temperature, newLamport, newVector);
                 file.append(record);
-                lastSeq = record.getSeq();
+                lastSeq = seq;
+                lamport = newLamport;
+                vector = newVector;
             }
+            System.out.println("EVENTO: p" + partition + " seq=" + record.getSeq()
+                    + " L=" + record.getLamport() + " V=(" + record.getVector() + ") "
+                    + record.getSensorId() + " " + record.getTemperature());
+        } catch (IllegalStateException e) {
+            System.err.println("INVARIANTE VIOLADO em p" + partition + ": " + e.getMessage());
+            return;
         } catch (IllegalArgumentException e) {
-            System.out.println("REJEITADO: " + message);
+            System.out.println("REJEITADO: " + message + " (" + e.getMessage() + ")");
             return;
         } catch (IOException e) {
             System.err.println("Não foi possível persistir IN em p" + partition + ": "

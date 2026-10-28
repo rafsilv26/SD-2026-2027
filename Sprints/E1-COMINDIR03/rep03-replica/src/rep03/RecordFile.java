@@ -34,6 +34,20 @@ public class RecordFile {
         return last;
     }
 
+    // devolve o último registo do ficheiro, ou null se não houver nenhum
+    public synchronized SensorRecord last() throws IOException {
+        if (!Files.exists(path)) {
+            return null;
+        }
+        SensorRecord last = null;
+        for (String line : Files.readAllLines(path, StandardCharsets.UTF_8)) {
+            if (!line.isBlank()) {
+                last = SensorRecord.fromLine(line);
+            }
+        }
+        return last;
+    }
+
     public synchronized List<SensorRecord> range(long from, long to) throws IOException {
         List<SensorRecord> result = new ArrayList<>();
         if (from > to || !Files.exists(path)) {
