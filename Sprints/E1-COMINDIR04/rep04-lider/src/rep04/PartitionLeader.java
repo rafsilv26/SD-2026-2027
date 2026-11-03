@@ -8,7 +8,14 @@ import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class PartitionLeader {
     private static final String DEFAULT_API = "http://127.0.0.1:5001/api/v0";
@@ -19,11 +26,14 @@ public class PartitionLeader {
     private final String advertisedHost;
     private final IpfsPubSub pubSub;
     private final RecordFile file;
+    private final long inc;
     private final Object stateLock = new Object();
-    // estado protegido por stateLock: seq, L e V mudam sempre juntos
+    // seq, L, V e pendentes mudam sempre dentro de stateLock.
     private long lastSeq;
     private long lamport;
     private VectorClock vector;
+    private long hb;
+    private List<SensorRecord> pending = new ArrayList<>();
 
     private PartitionLeader(int partition, int partitions, String advertisedHost, String api)
             throws IOException {
@@ -33,6 +43,7 @@ public class PartitionLeader {
         this.advertisedHost = advertisedHost;
         this.pubSub = new IpfsPubSub(api);
         this.file = new RecordFile("lider-p" + partition + ".txt");
+        this.inc = System.currentTimeMillis();
         // arrancar com seq, L e V do último registo gravado (ou a zeros se não houver)
         SensorRecord last = file.last();
         if (last == null) {
@@ -85,17 +96,24 @@ public class PartitionLeader {
         try (ServerSocket server = new ServerSocket(port)) {
             Thread input = new Thread(this::subscribe, "rep04-leader-input-p" + partition);
             input.start();
+            ScheduledExecutorService sender = Executors.newSingleThreadScheduledExecutor();
+            sender.scheduleAtFixedRate(this::enviarLote, 0, Wire.PERIODO_HB_MS,
+                    TimeUnit.MILLISECONDS);
             System.out.println("Líder p" + partition + " pronto; tópico="
                     + Wire.topicIn(partition) + "; recuperação="
                     + advertisedHost + ":" + port
                     + "; seq=" + lastSeq + "; L=" + lamport + "; V=" + vector);
-            while (!Thread.currentThread().isInterrupted()) {
-                try (Socket socket = server.accept()) {
-                    socket.setSoTimeout(Wire.T_TCP_MS);
-                    serve(socket);
-                } catch (IOException e) {
-                    System.err.println("Recuperação interrompida: " + e.getMessage());
+            try {
+                while (!Thread.currentThread().isInterrupted()) {
+                    try (Socket socket = server.accept()) {
+                        socket.setSoTimeout(Wire.T_TCP_MS);
+                        serve(socket);
+                    } catch (IOException e) {
+                        System.err.println("Recuperação interrompida: " + e.getMessage());
+                    }
                 }
+            } finally {
+                sender.shutdownNow();
             }
         }
     }
@@ -160,6 +178,7 @@ public class PartitionLeader {
                 lastSeq = seq;
                 lamport = newLamport;
                 vector = newVector;
+                pending.add(record);
             }
             System.out.println("EVENTO: p" + partition + " seq=" + record.getSeq()
                     + " L=" + record.getLamport() + " V=(" + record.getVector() + ") "
@@ -176,16 +195,48 @@ public class PartitionLeader {
             return;
         }
 
+    }
+
+    private void enviarLote() {
+        List<SensorRecord> records;
+        long loteHb;
+        long loteLastSeq;
+        synchronized (stateLock) {
+            records = pending;
+            pending = new ArrayList<>();
+            loteLastSeq = lastSeq;
+            loteHb = ++hb;
+        }
+
+        Batch batch = new Batch(advertisedHost, Wire.PORTO_BASE + partition,
+                inc, loteHb, loteLastSeq, records);
+        String message = batch.encode();
+        int bytes = message.getBytes(StandardCharsets.UTF_8).length;
         try {
-            pubSub.publish(Wire.topicData(partition),
-                    Wire.reg(advertisedHost, Wire.PORTO_BASE + partition, record));
-            System.out.println("Publicado REG p" + partition + ": " + record.toLine());
+            pubSub.publish(Wire.topicData(partition), message);
         } catch (IOException e) {
-            System.err.println("Publicação p" + partition + " falhou: " + e.getMessage());
+            System.err.println("Publicação do lote p" + partition
+                    + " falhou: " + e.getMessage());
+            return;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            System.err.println("Publicação p" + partition + " interrompida.");
+            System.err.println("Publicação do lote p" + partition + " interrompida.");
+            return;
         }
+
+        long instante = System.currentTimeMillis();
+        String line = inc + ";" + loteHb + ";" + instante + ";" + loteLastSeq
+                + ";" + records.size() + ";" + bytes + System.lineSeparator();
+        try {
+            Files.writeString(Path.of("hb-p" + partition + ".txt"), line,
+                    StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (IOException e) {
+            System.err.println("LOTE p" + partition + " hb=" + loteHb
+                    + " publicado, mas não foi possível registar hb-p" + partition
+                    + ".txt: " + e.getMessage());
+        }
+        System.out.println("HEARTBEAT: p" + partition + " hb=" + loteHb
+                + " n=" + records.size() + " ultimoSeq=" + loteLastSeq);
     }
 
     private void serve(Socket socket) throws IOException {

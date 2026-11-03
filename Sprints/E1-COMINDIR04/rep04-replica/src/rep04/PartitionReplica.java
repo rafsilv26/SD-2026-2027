@@ -8,11 +8,17 @@ import java.io.PrintWriter;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -25,6 +31,7 @@ public class PartitionReplica {
     private final double lossProbability;
     private final long discardedSeq;
     private final AtomicBoolean discardedOnce = new AtomicBoolean();
+    private final Object monitorLogLock = new Object();
 
     private PartitionReplica(String id, List<Integer> partitions, String api,
                              double lossProbability, long discardedSeq) throws IOException {
@@ -34,7 +41,10 @@ public class PartitionReplica {
         this.discardedSeq = discardedSeq;
         for (int partition : partitions) {
             RecordFile file = new RecordFile("replica-" + id + "-p" + partition + ".txt");
-            states.add(new PartitionState(partition, file, file.lastSeq()));
+            PartitionState state = new PartitionState(partition, file, file.lastSeq());
+            state.monitor = new HeartbeatMonitor(partition, Wire.PERIODO_HB_MS,
+                    Wire.FATOR_TIMEOUT, event -> logEvent(partition, event));
+            states.add(state);
         }
     }
 
@@ -89,6 +99,9 @@ public class PartitionReplica {
     private void run() {
         IpfsPubSub pubSub = new IpfsPubSub(api);
         List<Thread> threads = new ArrayList<>();
+        ScheduledExecutorService checker = Executors.newSingleThreadScheduledExecutor();
+        checker.scheduleAtFixedRate(() -> states.forEach(state -> state.monitor.check()),
+                Wire.VERIFICACAO_MS, Wire.VERIFICACAO_MS, TimeUnit.MILLISECONDS);
         for (PartitionState state : states) {
             Thread thread = new Thread(() -> subscribe(pubSub, state),
                     "rep04-replica-" + id + "-p" + state.partition);
@@ -104,9 +117,11 @@ public class PartitionReplica {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 System.err.println("Espera pelas subscrições interrompida.");
+                checker.shutdownNow();
                 return;
             }
         }
+        checker.shutdownNow();
     }
 
     private void subscribe(IpfsPubSub pubSub, PartitionState state) {
@@ -125,30 +140,36 @@ public class PartitionReplica {
     }
 
     private void onMessage(PartitionState state, String message) {
-        final String[] parts;
-        final SensorRecord record;
+        final Batch batch;
         try {
-            parts = Wire.regParts(message);
-            int port = Integer.parseInt(parts[1]);
-            if (parts[0].isBlank() || port < 1 || port > 65535) {
-                throw new IllegalArgumentException("endereço ou porto inválido");
-            }
-            record = SensorRecord.fromLine(parts[2]);
+            batch = Batch.decode(message, 3);
         } catch (IllegalArgumentException e) {
             System.out.println("REJEITADO: " + message);
             return;
         }
 
-        state.leaderHost = parts[0];
-        state.leaderPort = Integer.parseInt(parts[1]);
-        if (shouldDiscard(record.getSeq())) {
-            System.out.println("DESCARTADO (simulação): " + record.getSeq());
-            return;
+        state.leaderHost = batch.getAddress();
+        state.leaderPort = batch.getPort();
+        state.monitor.onHeartbeat(batch.getInc(), batch.getHb());
+        List<SensorRecord> records = batch.getRecords();
+        String range = records.isEmpty() ? "vazio"
+                : records.get(0).getSeq() + ".." + records.get(records.size() - 1).getSeq();
+        logEvent(state.partition, "RECEBIDO;p" + state.partition + ";inc=" + batch.getInc()
+                + ";hb=" + batch.getHb() + ";ultimoSeq=" + batch.getLastSeq()
+                + ";n=" + records.size() + ";seq=" + range);
+        for (SensorRecord record : records) {
+            if (shouldDiscard(record.getSeq())) {
+                System.out.println("DESCARTADO (simulação): " + record.getSeq());
+                continue;
+            }
+            try {
+                apply(state, record, true);
+            } catch (IOException e) {
+                System.err.println("Falha ao gravar p" + state.partition + ": " + e.getMessage());
+            }
         }
-        try {
-            apply(state, record, true);
-        } catch (IOException e) {
-            System.err.println("Falha ao gravar p" + state.partition + ": " + e.getMessage());
+        if (state.lastSeq < batch.getLastSeq()) {
+            recover(state, batch.getLastSeq());
         }
     }
 
@@ -193,11 +214,18 @@ public class PartitionReplica {
     }
 
     private void recover(PartitionState state) {
+        long to = state.retained.isEmpty() ? state.lastSeq : state.retained.firstKey() - 1;
+        recover(state, to);
+    }
+
+    private void recover(PartitionState state, long requestedTo) {
         long from = state.lastSeq + 1;
-        long to = state.retained.firstKey() - 1;
+        long to = requestedTo;
         if (to < from || state.leaderHost == null || state.leaderPort < 1) {
             return;
         }
+        logEvent(state.partition, "RECUPERACAO;p" + state.partition + ";de=" + from
+                + ";ate=" + to);
         System.out.println("RECUPERAÇÃO: " + from + ".." + to + " pedida a "
                 + state.leaderHost + ":" + state.leaderPort);
         try (Socket socket = new Socket()) {
@@ -241,6 +269,25 @@ public class PartitionReplica {
         }
     }
 
+    private void logEvent(int partition, String event) {
+        String[] parts = event.split(";", 3);
+        String type = parts[0];
+        String details = parts.length > 2 ? parts[2] : "";
+        String line = System.currentTimeMillis() + ";" + type + ";p" + partition
+                + (details.isEmpty() ? "" : ";" + details);
+        synchronized (monitorLogLock) {
+            try {
+                Files.writeString(Path.of("monitor-replica" + id + ".txt"),
+                        line + System.lineSeparator(), StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            } catch (IOException e) {
+                System.err.println("Não foi possível registar evento do detetor: "
+                        + e.getMessage());
+            }
+        }
+        System.out.println(line);
+    }
+
     private static void pauseBeforeRetry() {
         try {
             Thread.sleep(1000);
@@ -256,6 +303,7 @@ public class PartitionReplica {
         private long lastSeq;
         private String leaderHost;
         private int leaderPort;
+        private HeartbeatMonitor monitor;
 
         private PartitionState(int partition, RecordFile file, long lastSeq) {
             this.partition = partition;

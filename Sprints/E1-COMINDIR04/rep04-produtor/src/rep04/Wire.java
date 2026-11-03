@@ -1,14 +1,22 @@
 package rep04;
 
 public final class Wire {
-    public static final long PERIODO_HB_MS = Long.getLong("rep04.periodo", 5000L);
-    public static final int FATOR_TIMEOUT = Integer.getInteger("rep04.fator", 3);
+    public static final long PERIODO_HB_MS =
+            Long.parseLong(System.getProperty("rep04.periodo", "5000"));
+    public static final int FATOR_TIMEOUT =
+            Integer.parseInt(System.getProperty("rep04.fator", "3"));
     public static final long VERIFICACAO_MS = 1000L;
     public static final int LIMITE_RETIDOS = 10;
     public static final int T_TCP_MS = 5000;
     public static final int PORTO_BASE = 7000;
     public static final double LIMIAR_ALARME = 28.0;
     public static final String PREFIXO_ALARME = "ALARM-";
+
+    static {
+        if (PERIODO_HB_MS <= 0 || FATOR_TIMEOUT < 1) {
+            throw new IllegalArgumentException("rep04.periodo e rep04.fator têm de ser positivos");
+        }
+    }
 
     private Wire() { }
 
@@ -18,11 +26,6 @@ public final class Wire {
     // IN;sensor;temp;L;V
     public static String in(String sensor, double temp, long lamport, VectorClock vector) {
         return "IN;" + sensor + ";" + temp + ";" + lamport + ";" + vector;
-    }
-
-    // REG;host;porto;seq;sensor;temp;instante;L;V  (L e V vêm no toLine do registo)
-    public static String reg(String host, int port, SensorRecord record) {
-        return "REG;" + host + ";" + port + ";" + record.toLine();
     }
 
     public static String type(String message) {
@@ -43,11 +46,4 @@ public final class Wire {
         return trimmed.substring(separator + 1);
     }
 
-    public static String[] regParts(String message) {
-        String[] fields = message.trim().split(";", 4);
-        if (fields.length != 4 || !"REG".equals(fields[0])) {
-            throw new IllegalArgumentException("REG mal formado: " + message);
-        }
-        return new String[] {fields[1], fields[2], fields[3]};
-    }
 }

@@ -24,6 +24,13 @@ public final class Batch {
         this.hb = hb;
         this.lastSeq = lastSeq;
         this.records = Collections.unmodifiableList(new ArrayList<>(records));
+        long previous = 0;
+        for (SensorRecord record : this.records) {
+            if (record == null || record.getSeq() <= previous || record.getSeq() > lastSeq) {
+                throw new IllegalArgumentException("Sequência inválida no LOTE");
+            }
+            previous = record.getSeq();
+        }
     }
 
     public String encode() {

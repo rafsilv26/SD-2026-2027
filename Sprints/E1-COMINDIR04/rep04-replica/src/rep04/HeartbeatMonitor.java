@@ -47,8 +47,8 @@ public final class HeartbeatMonitor {
         long elapsed = System.nanoTime() - lastNanos;
         if (state != State.SUSPEITO && elapsed > timeoutNanos) {
             state = State.SUSPEITO;
-            log.accept("SUSPEITA;p" + partition + ";silencio_ms="
-                    + elapsed / 1_000_000L);
+            log.accept("SUSPEITA;p" + partition + ";inc=" + inc + ";hb=" + hb
+                    + ";silencio_ms=" + elapsed / 1_000_000L);
         }
     }
 

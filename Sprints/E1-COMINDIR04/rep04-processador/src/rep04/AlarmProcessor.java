@@ -1,10 +1,17 @@
 package rep04;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Processador de alarmes: subscreve os REG de todas as partições (uma thread por
@@ -18,6 +25,8 @@ public class AlarmProcessor {
     private final int partitions;
     private final Partitioner partitioner;
     private final IpfsPubSub pubSub;
+    private final List<HeartbeatMonitor> monitors = new ArrayList<>();
+    private final Object monitorLogLock = new Object();
 
     // estado partilhado pelas threads, sempre acedido dentro de synchronized (lock)
     private final Object lock = new Object();
@@ -31,6 +40,11 @@ public class AlarmProcessor {
         this.pubSub = new IpfsPubSub(api);
         this.lp = 0;
         this.vp = new VectorClock(partitions);
+        for (int k = 0; k < partitions; k++) {
+            final int partition = k;
+            monitors.add(new HeartbeatMonitor(k, Wire.PERIODO_HB_MS, Wire.FATOR_TIMEOUT,
+                    event -> logEvent(partition, event)));
+        }
     }
 
     public static void main(String[] args) {
@@ -51,6 +65,10 @@ public class AlarmProcessor {
 
     private void run() {
         List<Thread> threads = new ArrayList<>();
+        ScheduledExecutorService checker = Executors.newSingleThreadScheduledExecutor();
+        checker.scheduleAtFixedRate(
+                () -> monitors.forEach(HeartbeatMonitor::check),
+                Wire.VERIFICACAO_MS, Wire.VERIFICACAO_MS, TimeUnit.MILLISECONDS);
         for (int k = 0; k < partitions; k++) {
             final int partition = k;
             Thread thread = new Thread(() -> subscribe(partition),
@@ -65,9 +83,11 @@ public class AlarmProcessor {
                 thread.join();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                checker.shutdownNow();
                 return;
             }
         }
+        checker.shutdownNow();
     }
 
     private void subscribe(int partition) {
@@ -85,13 +105,26 @@ public class AlarmProcessor {
     }
 
     private void onMessage(int partition, String message) {
-        SensorRecord record;
+        Batch batch;
         try {
-            record = SensorRecord.fromLine(Wire.regParts(message)[2]);
+            batch = Batch.decode(message, partitions);
         } catch (IllegalArgumentException e) {
             System.out.println("REJEITADO: " + message);
             return;
         }
+        monitors.get(partition).onHeartbeat(batch.getInc(), batch.getHb());
+        List<SensorRecord> records = batch.getRecords();
+        String range = records.isEmpty() ? "vazio"
+                : records.get(0).getSeq() + ".." + records.get(records.size() - 1).getSeq();
+        logEvent(partition, "RECEBIDO;p" + partition + ";inc=" + batch.getInc()
+                + ";hb=" + batch.getHb() + ";ultimoSeq=" + batch.getLastSeq()
+                + ";n=" + records.size() + ";seq=" + range);
+        for (SensorRecord record : records) {
+            processRecord(partition, record);
+        }
+    }
+
+    private void processRecord(int partition, SensorRecord record) {
 
         String sensor = record.getSensorId();
         boolean isAlarm = sensor.startsWith(Wire.PREFIXO_ALARME);
@@ -110,7 +143,7 @@ public class AlarmProcessor {
                 vp.merge(record.getVector());
             } catch (IllegalArgumentException e) {
                 seen.remove(partition + ":" + record.getSeq());
-                System.out.println("REJEITADO: " + message + " (" + e.getMessage() + ")");
+                System.out.println("REJEITADO: " + record.toLine() + " (" + e.getMessage() + ")");
                 return;
             }
             lp = Math.max(lp, record.getLamport());
@@ -128,6 +161,12 @@ public class AlarmProcessor {
         // publicar fora do cadeado: a rede pode demorar e não deve bloquear as outras threads
         String alarmSensor = Wire.PREFIXO_ALARME + sensor;
         int target = partitioner.of(alarmSensor);
+        if (monitors.get(target).state() == HeartbeatMonitor.State.SUSPEITO) {
+            String warning = "AVISO: líder p" + target + " suspeito; alarme "
+                    + alarmSensor + " pode perder-se";
+            System.out.println(warning);
+            logEvent(target, "AVISO;p" + target + ";alarme=" + alarmSensor);
+        }
         try {
             pubSub.publish(Wire.topicIn(target),
                     Wire.in(alarmSensor, record.getTemperature(), alarmLamport, alarmVector));
@@ -138,6 +177,23 @@ public class AlarmProcessor {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    private void logEvent(int partition, String event) {
+        String[] parts = event.split(";", 3);
+        String details = parts.length > 2 ? ";" + parts[2] : "";
+        String line = System.currentTimeMillis() + ";" + parts[0] + ";p" + partition + details;
+        synchronized (monitorLogLock) {
+            try {
+                Files.writeString(Path.of("monitor-processador.txt"),
+                        line + System.lineSeparator(), StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            } catch (IOException e) {
+                System.err.println("Não foi possível registar evento do detetor: "
+                        + e.getMessage());
+            }
+        }
+        System.out.println(line);
     }
 
     private static void pauseBeforeRetry() {

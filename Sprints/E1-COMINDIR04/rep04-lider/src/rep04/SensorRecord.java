@@ -1,7 +1,5 @@
 package rep04;
 
-import java.time.LocalDateTime;
-
 public class SensorRecord {
     private final long seq;
     private final String sensorId;
@@ -23,7 +21,7 @@ public class SensorRecord {
     public static SensorRecord now(long seq, String sensorId, double temperature,
                                    long lamport, VectorClock vector) {
         return new SensorRecord(seq, sensorId, temperature,
-                LocalDateTime.now().withNano(0).toString(), lamport, vector);
+                Long.toString(System.currentTimeMillis()), lamport, vector);
     }
 
     // seq;sensor;temp;instante;L;V  (é aqui que os carimbos são serializados)
