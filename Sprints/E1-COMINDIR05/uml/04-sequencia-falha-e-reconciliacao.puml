@@ -1,16 +1,45 @@
 @startuml E1-COMINDIR05-Falha
 title E1-COMINDIR05 — Falha do líder, eleição e recuperação da divergência
 autonumber
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam ParticipantPadding 18
+skinparam BoxPadding 10
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam sequence {
+  ArrowColor #34495E
+  LifeLineBorderColor #85929E
+  LifeLineBackgroundColor #F8F9F9
+  ParticipantBorderColor #34495E
+  ParticipantBackgroundColor #EAF2F8
+  ParticipantFontColor #1B2631
+  ActorBorderColor #34495E
+  ActorBackgroundColor #E8F8F5
+  SequenceGroupBorderColor #7F8C8D
+  SequenceGroupBackgroundColor #F4F6F7
+}
 
+box "Entrada de dados" #DDF2D8
 participant "Producer" as Producer
+queue "raft04-in-p<k>" as Input
+end box
+
+box "Grupo Raft da partição p<k>" #CDEAF4
 participant "n2: líder termo t" as OldLeader
 participant "n1: seguidor" as N1
 participant "n3: seguidor/candidato" as N3
-queue "raft04-in-p<k>" as Input
-queue "raft04-p<k>" as Data
 queue "raft04-eleicao-p<k>" as Election
+queue "raft04-p<k>" as Data
+end box
+
+box "Persistência local" #FFF2CC
 database "no-p<k>-n2.txt" as OldLog
 database "no-p<k>-n3.txt" as NewLog
+end box
+
+== 1. Escrita e falha do líder atual ==
 
 Producer -> Input : IN A
 Input -> OldLeader : entrega IN A
@@ -25,60 +54,96 @@ OldLeader -> OldLog : append seq=m+1;termo=t\n(pendente, ainda não publicado)
 
 ... O líder falha antes de publicar o próximo LOTE ...
 
+== 2. Eleição de um novo líder ==
+
 note over N1,N3
-  Ausência de heartbeat; prazo aleatório expira.
-  A indisponibilidade é medida da falha até ao primeiro LOTE
+  Sem heartbeat, o prazo aleatório de um seguidor expira.
+  Mede-se a indisponibilidade até ao primeiro lote
   publicado por um líder de termo superior.
 end note
-
 N3 -> N3 : tick(); termo := t+1;\nvotar em si; persistir
 N3 -> Election : PEDIDO_VOTO;termo=t+1;\nlastSeq=m;lastTerm=t
 Election -> N1 : PEDIDO_VOTO
-N1 -> N1 : comparar log e voto\npersistir voto em n3
-N1 --> Election : VOTO;termo=t+1;n1;n3;S
+N1 -> N1 : comparar termo, voto e atualidade do log
+N1 -> N1 : persistir votedFor=n3
+N1 --> Election : VOTO;termo=t+1;n1;n3;concedido
 Election --> N3 : VOTO recebido
-N3 -> N3 : 2 votos / maioria\npapel := LIDER
-N3 -> NewLog : iniciar sequência em m\ninicializar L e V do último registo
+N3 -> N3 : n3 + n1 = 2/3\nmaioria; papel := LIDER
+N3 -> NewLog : iniciar sequência a partir de m
 N3 -> Data : LOTE;termo=t+1;lider=n3;\nultimoSeq=m;ultimoTermo=t
 
-Producer -> Input : IN C durante eleição
-Input -> N1 : sem líder que o aceite
-Input -> N3 : se chegar após eleição,\nreceberá seq=m+1 no termo t+1
-N3 -> NewLog : append seq=m+1;termo=t+1
+== 3. Entrada durante a eleição ==
+
+Producer -> Input : IN C
+Input -> N1 : entrega IN C
+N1 -> N1 : não é líder:\nignorar IN
+Input -> N3 : entrega IN C após eleição
+N3 -> NewLog : append seq=m+1;termo=t+1\natualizar L e V
+N3 -> Data : LOTE com seq=m+1;termo=t+1
+
+== 4. Reinício e reconciliação do antigo líder ==
 
 ... antigo n2 reinicia, lendo termo t e log até seq=m+1 ...
 
 Data -> OldLeader : LOTE termo=t+1;seq=m+1
 OldLeader -> OldLeader : onBatch(t+1,n3)\nadotar termo; demitir-se
-OldLeader -> N3 : TCP PEDIDO (início do último bloco local)..m+1
+OldLeader -> N3 : TCP PEDIDO (intervalo divergente)
 N3 --> OldLeader : registos do líder + FIM
-OldLeader -> OldLog : comparar pares (seq,termo)\ntruncar do primeiro diferente\nreescrever atomicamente
+OldLeader -> OldLog : comparar pares (seq,termo)\ntruncar do primeiro diferente
 OldLeader -> OldLog : aplicar versão do líder
-OldLeader -> OldLeader : TRUNCADO;de=...;\ndescartados=...;termos=...
+OldLeader -> OldLeader : registar TRUNCADO;de=...;\ndescartados=...;termos=...
 
 note over OldLeader,NewLog
   Registos só são equivalentes se tiverem o mesmo seq e termo.
   Divergências são substituídas pela cópia do líder atual.
-  Um IN escrito apenas pelo antigo líder mas ainda não publicado
-  pode desaparecer: a tarefa não implementa commit.
+  O IN B escrito apenas pelo antigo líder pode desaparecer:
+  a tarefa não implementa confirmação de append por maioria.
 end note
 @enduml
 
 @startuml E1-COMINDIR05-Isolamento
 title E1-COMINDIR05 — Partição de rede e consequência CAP
 autonumber
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam ParticipantPadding 18
+skinparam BoxPadding 10
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam sequence {
+  ArrowColor #34495E
+  LifeLineBorderColor #85929E
+  LifeLineBackgroundColor #F8F9F9
+  ParticipantBorderColor #34495E
+  ParticipantBackgroundColor #EAF2F8
+  ParticipantFontColor #1B2631
+  ActorBorderColor #34495E
+  ActorBackgroundColor #E8F8F5
+  SequenceGroupBorderColor #7F8C8D
+  SequenceGroupBackgroundColor #F4F6F7
+}
 
+box "Entrada (mantém-se acessível)" #DDF2D8
 participant "Produtor" as Producer
+queue "raft04-in-p<k>" as Input
+end box
+
+box "Nós da partição p<k>" #CDEAF4
 participant "n1: líder termo t\n(minoria isolada)" as MinorLeader
 participant "n2: seguidor" as Majority1
 participant "n3: seguidor" as Majority2
-queue "PubSub / TCP" as Network
+queue "PubSub: eleição e dados\n+ recuperação TCP" as Network
+end box
 
-Producer -> Network : IN (canal de entrada continua alcançável)
+== 1. Isolamento do líder minoritário ==
+
+Producer -> Input : IN
+Input -> MinorLeader : IN (entrada continua acessível)
 Network -x MinorLeader : LOTE / eleição / TCP bloqueados\nmarcador isolar-p<k>-n1
-Network -> Majority1 : IN
-Network -> Majority2 : IN
-Majority1 -> Network : candidatos e pedidos de voto
+Input -> Majority1 : IN
+Input -> Majority2 : IN
+Majority1 -> Network : candidatura e PEDIDO_VOTO
 Network -> Majority2 : PEDIDO_VOTO
 Majority2 --> Network : VOTO
 Network --> Majority1 : VOTO
@@ -88,24 +153,26 @@ Network -> Majority2 : LOTE termo=t+1
 
 MinorLeader -> MinorLeader : continua a aceitar IN\nlocalmente no termo t
 note right of MinorLeader
-  Isolamento não o faz saber
-  que perdeu a liderança.
+  O isolamento não informa o nó
+  de que perdeu a liderança.
   Pode criar registos obsoletos.
 end note
+
+== 2. Restabelecimento e reconciliação ==
 
 ... reparar rede / remover marcador ...
 
 Network -> MinorLeader : LOTE termo=t+1
 MinorLeader -> MinorLeader : adotar t+1; demitir-se
 MinorLeader -> Majority1 : recuperação TCP
-Majority1 --> MinorLeader : log de termo superior
+Majority1 --> MinorLeader : registos do líder
 MinorLeader -> MinorLeader : truncar escritas divergentes
 
 note bottom
   A maioria mantém a capacidade de eleger e escrever.
   A minoria não elege, mas o antigo líder isolado ainda aceita IN:
-  isto não é um sistema CP rigoroso por não ter confirmação por maioria.
-  Requer-se quorum de append/commit para rejeitar escritas minoritárias,
+  não há confirmação de escrita por maioria (*commit*).
+  Quorum de append/commit rejeitaria escritas minoritárias,
   com custo de disponibilidade e latência.
 end note
 @enduml

@@ -10,7 +10,8 @@ Implementação Java 11+ em três projetos independentes: `raft04-no`,
 
 Os ficheiros PlantUML em `uml/` cobrem a arquitetura e deployment, o modelo de
 classes, a máquina de estados, as sequências de eleição/falha/recuperação e as
-evidências usadas para verificar as métricas. Para gerar SVG ou PNG com
+evidências usadas para verificar as métricas. Os diagramas de sequência agrupam
+os participantes por zona e dividem o fluxo em fases. Para gerar SVG ou PNG com
 PlantUML instalado:
 
 ```bash
