@@ -1,0 +1,485 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Simulador de Eleição RAFT</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: bancada de laboratório — palco do grupo p1 à esquerda, diário de eventos à direita, cronograma de papéis por baixo */
+:root{
+  --bg:#edf0f3; --surface:#ffffff; --soft:#e2e7ec; --ink:#14202b; --muted:#566574; --line:#cbd4dc;
+  --accent:#1c5ca8; --cand:#b9730a; --fail:#c23b2d; --ok:#1d8556; --dead:#8a96a3;
+  --t0:#98a4b0; --t1:#2f6dcc; --t2:#7a4ed2; --t3:#0d8a7f; --t4:#cc6610; --t5:#c23a77; --t6:#5a7d17;
+  --f-display:"Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body:"IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono:"IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0d1217; --surface:#151c23; --soft:#1d2630; --ink:#e3e9ef; --muted:#93a2b1; --line:#2c3743;
+  --accent:#71a5ee; --cand:#e6a53e; --fail:#f06b5b; --ok:#4cc38e; --dead:#5c6976;
+  --t0:#6b7886; --t1:#5e95ec; --t2:#a283f2; --t3:#36c2b4; --t4:#f19142; --t5:#ee6ea6; --t6:#9dc24c;
+  color-scheme:dark; } }
+:root[data-theme="dark"]{
+  --bg:#0d1217; --surface:#151c23; --soft:#1d2630; --ink:#e3e9ef; --muted:#93a2b1; --line:#2c3743;
+  --accent:#71a5ee; --cand:#e6a53e; --fail:#f06b5b; --ok:#4cc38e; --dead:#5c6976;
+  --t0:#6b7886; --t1:#5e95ec; --t2:#a283f2; --t3:#36c2b4; --t4:#f19142; --t5:#ee6ea6; --t6:#9dc24c;
+  color-scheme:dark; }
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));padding-block:20px 40px}
+.wrap{max-width:1240px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+header{display:flex;flex-direction:column;gap:6px}
+.eyebrow{font-family:var(--f-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--f-display);font-weight:700;font-size:clamp(26px,4vw,38px);line-height:1.1;margin:0;text-wrap:balance}
+.lead{max-width:72ch;color:var(--muted);margin:0}
+.lead code, .note code{font-family:var(--f-mono);font-size:.9em}
+
+.scen{display:flex;flex-wrap:wrap;gap:8px}
+.scen button{font:500 14px var(--f-body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:7px 14px;cursor:pointer}
+.scen button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+button:focus-visible, select:focus-visible, input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.note{display:flex;gap:14px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:6px;padding:12px 16px;min-height:66px}
+.note .clock{font-family:var(--f-mono);font-size:20px;font-weight:500;font-variant-numeric:tabular-nums;min-width:74px;color:var(--accent)}
+.note p{margin:0;max-width:80ch}
+
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:18px;align-items:start}
+@media (max-width:980px){.grid{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px;min-width:0}
+.panel h2{font-family:var(--f-display);font-weight:500;font-size:17px;margin:0 0 10px}
+
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px}
+.btn{font:500 14px var(--f-body);background:var(--soft);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 12px;cursor:pointer}
+.btn.primary{background:var(--accent);color:var(--surface);border-color:var(--accent)}
+.btn.warn{color:var(--fail)}
+.toolbar label{display:flex;gap:6px;align-items:center;font-size:14px;color:var(--muted)}
+.toolbar select{font:14px var(--f-body);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:4px 6px}
+.spacer{flex:1}
+
+.stage{overflow-x:auto}
+.stage svg{display:block;width:100%;min-width:620px;height:auto}
+svg text{font-family:var(--f-body)}
+.sv-id{font-family:var(--f-display);font-weight:700;font-size:22px;fill:var(--ink)}
+.sv-mono{font-family:var(--f-mono);font-size:12px;fill:var(--ink)}
+.sv-muted{font-family:var(--f-mono);font-size:11px;fill:var(--muted)}
+.sv-pill{font-family:var(--f-mono);font-size:11px;font-weight:500;letter-spacing:.06em}
+.sv-msg{font-family:var(--f-mono);font-size:10px;fill:var(--ink)}
+.sv-seq{font-family:var(--f-mono);font-size:10px;font-weight:500;fill:#fff}
+
+.nodectl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px}
+@media (max-width:560px){.nodectl{grid-template-columns:minmax(0,1fr)}}
+.nodectl div{display:flex;gap:6px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+.nodectl strong{font-family:var(--f-display);font-size:16px;margin-right:auto}
+
+.timeline{margin-top:14px}
+.timeline canvas{display:block;width:100%;height:132px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--muted);margin-top:8px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:14px;height:10px;border-radius:2px;display:inline-block}
+
+.stats{display:grid;grid-template-columns:1fr auto;gap:6px 12px;font-size:14px;margin:0}
+.stats dt{color:var(--muted)}
+.stats dd{margin:0;font-family:var(--f-mono);font-variant-numeric:tabular-nums;text-align:right}
+.stats dd.bad{color:var(--fail)} .stats dd.good{color:var(--ok)}
+
+.log{list-style:none;margin:0;padding:0;max-height:430px;overflow-y:auto;font-size:13px;display:flex;flex-direction:column}
+.log li{display:grid;grid-template-columns:44px 30px 96px minmax(0,1fr);gap:6px;padding:4px 0;border-bottom:1px solid var(--soft);align-items:baseline}
+.log .t{font-family:var(--f-mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.log .n{font-family:var(--f-mono);font-weight:500}
+.chip{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.04em;padding:1px 6px;border-radius:4px;background:var(--soft);color:var(--muted);justify-self:start}
+.chip.ok{color:var(--ok)} .chip.cand{color:var(--cand)} .chip.fail{color:var(--fail)} .chip.acc{color:var(--accent)}
+.log .d{min-width:0;overflow-wrap:anywhere}
+.side{display:flex;flex-direction:column;gap:18px;min-width:0}
+footer{color:var(--muted);font-size:13px;max-width:90ch}
+@media (prefers-reduced-motion: reduce){ *{scroll-behavior:auto} }
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">Sistemas Distribuídos · COMINDIR04 · partição de dados p1</span>
+    <h1>Eleição do líder ao estilo RAFT</h1>
+    <p class="lead">Três nós servem a partição p1. O líder publica um <code>LOTE</code> a cada Δ = 2 s; cada seguidor espera um prazo sorteado entre 6 e 12 s e, se não ouvir o líder, candidata-se num termo novo. Escolha um cenário, observe, e use os botões de cada nó para provocar falhas ou partições de rede.</p>
+  </header>
+
+  <nav class="scen" id="scen" aria-label="Cenários"></nav>
+
+  <div class="note" aria-live="polite"><span class="clock" id="clock">t=0,0</span><p id="note"></p></div>
+
+  <div class="grid">
+    <section class="panel">
+      <div class="toolbar">
+        <button class="btn primary" id="play">Pausar</button>
+        <button class="btn" id="reset">Recomeçar cenário</button>
+        <button class="btn" id="send">Enviar leitura</button>
+        <span class="spacer"></span>
+        <label for="speed">Velocidade
+          <select id="speed"><option value="0.5">0,5×</option><option value="1">1×</option><option value="1.5" selected>1,5×</option><option value="3">3×</option></select>
+        </label>
+        <label for="auto"><input type="checkbox" id="auto"> Leituras contínuas</label>
+        <label for="rand"><input type="checkbox" id="rand" checked> Prazo aleatório</label>
+      </div>
+      <div class="stage"><svg id="svg" viewBox="0 0 840 540" role="img" aria-label="Produtor e três nós da partição p1 a trocar mensagens"></svg></div>
+      <div class="nodectl" id="nodectl"></div>
+      <div class="timeline">
+        <h2>Papéis ao longo do tempo (últimos 60 s)</h2>
+        <canvas id="tl" aria-label="Cronograma dos papéis de cada nó"></canvas>
+        <div class="legend">
+          <span><i class="sw" style="background:var(--t1)"></i>líder (cor do termo)</span>
+          <span><i class="sw" style="background:var(--cand)"></i>candidato</span>
+          <span><i class="sw" style="background:var(--soft);outline:1px solid var(--line)"></i>seguidor</span>
+          <span><i class="sw" style="background:var(--dead)"></i>falhou</span>
+          <span><i class="sw" style="background:var(--fail)"></i>isolado / sem líder</span>
+          <span><i class="sw" style="background:var(--ok)"></i>p1 com líder alcançável</span>
+        </div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="panel">
+        <h2>Estado de p1</h2>
+        <dl class="stats" id="stats"></dl>
+      </section>
+      <section class="panel">
+        <h2>Eventos</h2>
+        <ul class="log" id="log"></ul>
+      </section>
+    </aside>
+  </div>
+
+  <footer>Modelo simplificado da ficha: atraso de 0,3 s por mensagem, maioria de 2 em 3, termo e voto persistentes, restrição de voto pelo registo mais atualizado e truncagem de registos divergentes. Não há <em>commit</em> por maioria, tal como na ficha. Uma partição de rede isola um nó nos tópicos de dados e de eleição, mas o produtor continua a alcançá-lo.</footer>
+</div>
+
+<script>
+(function(){
+const NODES=[1,2,3], LAT=0.3, DELTA=2, EMIN=6, EMAX=12, WIN=60;
+const POS={P:{x:90,y:290,hw:70,hh:44},1:{x:320,y:116,hw:122,hh:88},2:{x:705,y:116,hw:122,hh:88},3:{x:512,y:438,hw:122,hh:88}};
+const ROLE={S:'SEGUIDOR',C:'CANDIDATO',L:'LÍDER'};
+const fmt=x=>x.toFixed(1).replace('.',',');
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const tc=t=>t<=0?'var(--t0)':`var(--t${((t-1)%6)+1})`;
+
+let S, playing=true, speed=1.5;
+
+/* ---------- cenários ---------- */
+const leaderId=()=>{const l=NODES.find(i=>S.nodes[i].alive&&S.nodes[i].role==='L'&&!S.nodes[i].iso);return l||null};
+const SCEN=[
+ {id:'arranque',name:'Arranque',seed:21,auto:{start:4,every:2.5},end:40,actions:[],readings:[],
+  notes:[[0,'Os três nós arrancam como seguidores, no termo 0 e sem líder. Cada um sorteou um prazo de eleição entre 6 e 12 s: veja as barras.'],
+         [6,'O primeiro prazo a expirar transforma esse nó em candidato: incrementa o termo, vota em si e publica PEDIDO_VOTO.'],
+         [9,'Com 2 votos em 3 (maioria) o candidato torna-se líder e publica logo um LOTE. Cada LOTE renova o prazo dos seguidores, por isso as barras voltam a encher.'],
+         [20,'As leituras recebem seq no líder e seguem no LOTE seguinte. Experimente agora os botões de cada nó.']]},
+ {id:'fig1',name:'Figura 1: falha e regresso',seed:3,end:28,actions:[{t:12,run:()=>kill(2)},{t:24,run:()=>restart(2)}],
+  readings:[[8,'S02','20.1'],[10,'S05','23.7'],[11.5,'S02','20.4'],[14,'S05','23.9'],[20,'S02','20.6']],
+  timeout:(id,t)=>id===1?(t<1?9.4:8.3):id===2?(t<1?6.8:null):(t<1?11.1:6.4),
+  notes:[[0,'Reprodução da Figura 1. Prazos sorteados: n1 9,4 s, n2 6,8 s, n3 11,1 s.'],
+         [6.8,'O prazo de n2 expira primeiro: candidato no termo 1, vota em si e pede votos.'],
+         [7.4,'n1 e n3 concedem o voto. Com 2 votos em 3, n2 é líder do termo 1.'],
+         [8,'S02 20.1 e S05 23.7 recebem seq 1 e 2 e seguem nos lotes seguintes.'],
+         [11.5,'S02 20.4 recebe seq 3 no termo 1 e fica pendente no líder.'],
+         [12,'n2 falha antes de publicar o seq 3. Os seguidores contam o prazo desde o último LOTE.'],
+         [14,'S05 23.9 chega a uma partição sem líder e perde-se sem deixar vestígio.'],
+         [18.1,'O prazo de n3 expira: candidato no termo 2 com último registo (2, 1). n1 concede o voto porque n3 está tão atualizado como ele.'],
+         [20,'S02 20.6 recebe seq 3, agora no termo 2.'],
+         [24,'n2 volta a arrancar com o termo 1 lido do ficheiro e com o seq 3 do termo 1 no seu registo.'],
+         [25,'Ao receber o LOTE do termo 2, n2 adota o termo, reconhece n3 e deteta a divergência no seq 3: trunca-o e copia o registo do líder.']]},
+ {id:'isolider',name:'Partição de rede: líder isolado',seed:12,auto:{start:3,every:1.5},end:56,readings:[],
+  actions:[{t:16,run:()=>{const l=leaderId()||1;S.refs.iso=l;isolate(l,true)}},{t:36,run:()=>isolate(S.refs.iso,false)}],
+  notes:[[0,'Leituras contínuas para p1. Aguarde a primeira eleição.'],
+         [16,'Partição de rede: o líder fica separado dos outros dois nós, mas o produtor continua a alcançar todos. O líder não sabe que está isolado e continua a atribuir seq.'],
+         [25,'A maioria deixa de receber LOTE e elege um líder num termo superior. Há dois nós que se julgam líderes, em termos diferentes, e cada leitura é aceite pelos dois.'],
+         [36,'A partição é reparada. O antigo líder recebe um LOTE de termo superior, demite-se e trunca os registos que atribuiu sozinho.'],
+         [40,'CAP: as leituras que só o antigo líder aceitou, antes de a maioria ter líder, perderam-se na truncagem (veja os contadores). O lado minoritário aceitou escritas que não podia garantir; só um commit por maioria o impediria.']]},
+ {id:'isoseg',name:'Partição de rede: seguidor isolado',seed:5,auto:{start:3,every:3},end:66,readings:[],
+  actions:[{t:16,run:()=>{const f=NODES.find(i=>S.nodes[i].alive&&S.nodes[i].role!=='L')||3;S.refs.iso=f;isolate(f,true)}},{t:46,run:()=>isolate(S.refs.iso,false)}],
+  notes:[[0,'Leituras ocasionais para p1. Aguarde a primeira eleição.'],
+         [16,'Um seguidor fica isolado. Sem LOTE, o seu prazo expira e candidata-se. Os pedidos de voto perdem-se e o termo sobe a cada prazo.'],
+         [30,'O outro lado continua com o mesmo líder: dois nós chegam para a maioria.'],
+         [46,'Reparação: quando o nó isolado volta a pedir votos com um termo alto, o líder adota esse termo e demite-se, embora estivesse saudável. O nó isolado não tem os registos mais recentes, por isso ninguém lhe dá o voto e há nova eleição. A fase de Pre-Vote do RAFT evita esta perturbação.']]},
+ {id:'semmaioria',name:'Perda de maioria',seed:9,auto:{start:3,every:2},end:60,readings:[],
+  actions:[{t:16,run:()=>{const l=leaderId()||1;const f=NODES.find(i=>i!==l);S.refs.f=f;kill(l);kill(f)}},{t:38,run:()=>restart(S.refs.f)}],
+  notes:[[0,'Leituras contínuas para p1. Aguarde a primeira eleição.'],
+         [16,'Falham dois dos três nós. O sobrevivente candidata-se, mas só tem o seu próprio voto: 1 em 3 não é maioria.'],
+         [24,'Sem líder, todas as leituras para p1 se perdem. O sistema prefere ficar indisponível a arriscar dois líderes no mesmo termo: escolhe C em vez de A.'],
+         [38,'Um dos nós volta. Com dois nós vivos há de novo maioria e é eleito um líder.']]},
+ {id:'dividido',name:'Voto dividido',seed:2,randomized:false,auto:{start:3,every:3},end:80,actions:[],readings:[],
+  notes:[[0,'Prazo fixo de 6 s em todos os nós e arranque simultâneo.'],
+         [6,'Os três prazos expiram ao mesmo tempo: cada nó vota em si e recusa os outros. Ninguém chega à maioria, é um voto dividido.'],
+         [13,'O empate repete-se em cada termo. Ative «Prazo aleatório» para o desfazer.']]}
+];
+
+/* ---------- simulação ---------- */
+function newState(sc){
+  S={t:0,sc,rng:mulberry32(sc.seed),nodes:{},msgs:[],events:[],flashes:[],readings:[],hist:[],nextHist:0,
+     termLeaders:{},rid:0,done:new Set(),rdone:new Set(),refs:{},unavail:0,truncLost:new Set(),evDirty:true,endFired:false,
+     randomized:sc.randomized!==false,auto:!!sc.auto,nextAuto:sc.auto?sc.auto.start:Infinity};
+  NODES.forEach(id=>{S.nodes[id]={id,alive:true,iso:false,term:0,voted:0,role:'S',leader:0,deadline:0,tot:1,log:[],pend:[],hb:0,nextHb:0,votes:new Set()};resetTimer(S.nodes[id])});
+  document.getElementById('rand').checked=S.randomized;
+  document.getElementById('auto').checked=S.auto;
+  ev(0,'ARRANQUE','três nós como seguidores no termo 0');
+}
+function ev(node,type,text){S.events.unshift({t:S.t,node,type,text});if(S.events.length>120)S.events.pop();S.evDirty=true}
+function draw(n){const f=S.sc.timeout&&S.sc.timeout(n.id,S.t);if(f!=null)return f;if(!S.randomized)return EMIN;return EMIN+S.rng()*(EMAX-EMIN)}
+function resetTimer(n){n.tot=draw(n);n.deadline=S.t+n.tot}
+const lastOf=n=>n.log.length?{seq:n.log.length,term:n.log[n.log.length-1].term}:{seq:0,term:0};
+const blocked=id=>id!=='P'&&S.nodes[id].iso;
+
+function send(from,to,type,data){
+  if(from!=='P'&&!S.nodes[from].alive)return;
+  const dropped=type!=='IN'&&(blocked(from)||blocked(to));
+  S.msgs.push({from,to,type,data,t0:S.t,t1:S.t+LAT,dropped});
+}
+function bcast(n,type,data){NODES.forEach(j=>{if(j!==n.id)send(n.id,j,type,data)})}
+
+function adopt(n,T){
+  const wasL=n.role==='L';
+  if(wasL)ev(n.id,'DEMISSAO','deixa de ser líder do termo '+n.term);
+  ev(n.id,'TERMO',n.term+' → '+T);
+  n.term=T;n.voted=0;n.role='S';n.leader=0;n.pend=[];
+  if(wasL)resetTimer(n);
+}
+function startElection(n){
+  n.term++;n.voted=n.id;n.role='C';n.leader=0;n.votes=new Set([n.id]);resetTimer(n);
+  const l=lastOf(n);ev(n.id,'CANDIDATO',`termo ${n.term}, último registo (${l.seq}, ${l.term})`);
+  bcast(n,'PEDIDO',{term:n.term,cand:n.id,ls:l.seq,lt:l.term});
+}
+function becomeLeader(n){
+  n.role='L';n.leader=n.id;n.hb=0;n.pend=[];
+  (S.termLeaders[n.term]=S.termLeaders[n.term]||new Set()).add(n.id);
+  ev(n.id,'LIDER',`termo ${n.term}, votos ${[...n.votes].map(v=>'n'+v).join(' e ')}; continua em seq ${n.log.length}`);
+  sendBatch(n);n.nextHb=S.t+DELTA;
+}
+function sendBatch(n){
+  n.hb++;
+  const recs=n.pend.map(s=>n.log[s-1]).filter(Boolean);n.pend=[];
+  const l=lastOf(n);const ps=recs.length?recs[0].seq-1:0;
+  bcast(n,'LOTE',{term:n.term,leader:n.id,hb:n.hb,recs:recs.map(r=>({...r})),us:l.seq,ut:l.term,ps,pt:ps>0?n.log[ps-1].term:0});
+}
+function sync(n,lid,us){
+  const ld=S.nodes[lid];
+  if(!ld.alive||ld.iso||n.iso){ev(n.id,'ERRO','recuperação TCP falhou');return}
+  const src=ld.log.slice(0,us);let d=0;
+  while(d<n.log.length&&d<src.length&&n.log[d].term===src[d].term&&n.log[d].rid===src[d].rid)d++;
+  const gone=n.log.slice(d),add=src.slice(d);
+  n.log=n.log.slice(0,d).concat(add.map(e=>({...e})));
+  if(gone.length){
+    ev(n.id,'TRUNCADO',`de seq ${d+1}: ${gone.length} registo(s) do(s) termo(s) ${[...new Set(gone.map(e=>e.term))].join(', ')}`);
+    gone.forEach(e=>{if(!src.some(x=>x.rid===e.rid))S.truncLost.add(e.rid)});
+  }
+  if(add.length)ev(n.id,'RECUPERACAO',`seq ${d+1} a ${us} pedidos a n${lid} por TCP`);
+  S.flashes.push({a:n.id,b:lid,t0:S.t});
+}
+function deliver(m){
+  if(m.dropped)return;
+  const n=S.nodes[m.to];if(!n.alive)return;
+  if(m.type!=='IN'&&(n.iso||blocked(m.from)))return;
+  const d=m.data;
+  if(m.type==='IN'){
+    if(n.role!=='L')return;
+    const r=S.readings[d.rid-1];const e={seq:n.log.length+1,term:n.term,rid:d.rid};
+    n.log.push(e);n.pend.push(e.seq);r.accepted.push(`n${n.id}·t${n.term}`);
+    ev(n.id,'IN',`${r.sensor} ${r.temp} → seq ${e.seq}, termo ${n.term}`);
+  } else if(m.type==='PEDIDO'){
+    if(d.term>n.term)adopt(n,d.term);
+    const me=lastOf(n);const up=d.lt>me.term||(d.lt===me.term&&d.ls>=me.seq);
+    const ok=d.term===n.term&&(n.voted===0||n.voted===d.cand)&&up;
+    if(ok){n.voted=d.cand;resetTimer(n)}
+    ev(n.id,'VOTO',`n${d.cand} no termo ${n.term}: ${ok?'concedido':(up?'recusado, já votou':'recusado, registo desatualizado')}`);
+    send(n.id,d.cand,'VOTO',{term:n.term,voter:n.id,cand:d.cand,ok});
+  } else if(m.type==='VOTO'){
+    if(d.term>n.term){adopt(n,d.term);return}
+    if(n.role!=='C'||d.term!==n.term||d.cand!==n.id||!d.ok)return;
+    n.votes.add(d.voter);if(n.votes.size>=2)becomeLeader(n);
+  } else if(m.type==='LOTE'){
+    if(d.term<n.term){ev(n.id,'IGNORADO',`LOTE de n${d.leader} do termo ${d.term} < ${n.term}`);return}
+    if(d.term>n.term)adopt(n,d.term);
+    if(n.role==='L'){ev(n.id,'ERRO','dois líderes no termo '+n.term);return}
+    n.role='S';
+    if(n.leader!==d.leader){n.leader=d.leader;ev(n.id,'NOVO_LIDER',`n${d.leader} no termo ${n.term}`)}
+    resetTimer(n);
+    let need=false;
+    if(d.recs.length&&d.ps>0&&(!n.log[d.ps-1]||n.log[d.ps-1].term!==d.pt))need=true;
+    if(!need)for(const r of d.recs){
+      const loc=n.log[r.seq-1];
+      if(loc&&loc.term===r.term&&loc.rid===r.rid)continue;
+      if(loc||r.seq>n.log.length+1){need=true;break}
+      n.log.push({...r});
+    }
+    if(!need){
+      if(n.log.length!==d.us)need=true;
+      else if(d.us>0&&n.log[d.us-1].term!==d.ut)need=true;
+    }
+    if(d.recs.length&&!need)ev(n.id,'RECEBIDO',`LOTE hb=${d.hb}: seq ${d.recs[0].seq} a ${d.recs[d.recs.length-1].seq}`);
+    if(need)sync(n,d.leader,d.us);
+  }
+}
+function emitReading(sensor,temp){
+  const r={rid:++S.rid,sensor:sensor||(S.rid%2?'S02':'S05'),temp:temp||(19.5+S.rng()*4.5).toFixed(1),t:S.t,accepted:[],checked:false};
+  S.readings.push(r);NODES.forEach(id=>send('P',id,'IN',{rid:r.rid}));
+}
+function kill(id){const n=S.nodes[id];if(!n.alive)return;n.alive=false;ev(id,'FALHA','processo terminado (kill -9)');S.msgs=S.msgs.filter(m=>m.from!==id)}
+function restart(id){const n=S.nodes[id];if(n.alive)return;Object.assign(n,{alive:true,role:'S',leader:0,pend:[],votes:new Set()});resetTimer(n);
+  ev(id,'ARRANQUE',`lê do disco termo ${n.term}, voto ${n.voted?'n'+n.voted:'—'}, ${n.log.length} registo(s)`)}
+function isolate(id,v){const n=S.nodes[id];if(n.iso===v)return;n.iso=v;ev(id,v?'ISOLADO':'REPARADO',v?'partição de rede: sem contacto com os outros nós':'volta a comunicar com o grupo')}
+const reachable=()=>NODES.some(i=>{const n=S.nodes[i];return n.alive&&!n.iso&&n.role==='L'});
+
+function step(dt){
+  S.t+=dt;const sc=S.sc;
+  sc.actions.forEach((a,i)=>{if(!S.done.has(i)&&S.t>=a.t){S.done.add(i);a.run()}});
+  sc.readings.forEach((r,i)=>{if(!S.rdone.has(i)&&S.t>=r[0]){S.rdone.add(i);emitReading(r[1],r[2])}});
+  if(S.auto&&S.t>=S.nextAuto){emitReading();S.nextAuto=S.t+(sc.auto?sc.auto.every:2)}
+  const arrived=S.msgs.filter(m=>S.t>=m.t1);S.msgs=S.msgs.filter(m=>S.t<m.t1);arrived.forEach(deliver);
+  NODES.forEach(id=>{const n=S.nodes[id];if(!n.alive)return;
+    if(n.role==='L'){if(S.t>=n.nextHb){sendBatch(n);n.nextHb+=DELTA}}
+    else if(S.t>=n.deadline)startElection(n)});
+  S.readings.forEach(r=>{if(!r.checked&&S.t>=r.t+LAT+0.05){r.checked=true;
+    if(!r.accepted.length)ev('P','PERDIDA',`${r.sensor} ${r.temp}: p1 sem líder`);
+    else if(r.accepted.length>1)ev('P','DUPLA',`${r.sensor} ${r.temp} aceite por ${r.accepted.join(' e ')}`)}});
+  if(!reachable())S.unavail+=dt;
+  if(S.t>=S.nextHist){S.nextHist=S.t+0.1;S.hist.push({t:S.t,n:NODES.map(i=>{const n=S.nodes[i];return{r:n.role,term:n.term,a:n.alive,iso:n.iso}}),ok:reachable()});
+    while(S.hist.length&&S.hist[0].t<S.t-WIN-1)S.hist.shift()}
+  S.flashes=S.flashes.filter(f=>S.t-f.t0<1.2);
+  if(!S.endFired&&S.t>=sc.end){S.endFired=true;setPlaying(false);ev(0,'FIM','fim do cenário; pode continuar ou mexer nos nós')}
+}
+
+/* ---------- desenho ---------- */
+const svg=document.getElementById('svg');
+function edge(p,dx,dy){const L=Math.hypot(dx,dy)||1;const ux=dx/L,uy=dy/L;const s=Math.min(p.hw/Math.abs(ux||1e-9),p.hh/Math.abs(uy||1e-9));return{x:p.x+ux*(s+4),y:p.y+uy*(s+4)}}
+function seg(a,b){const A=POS[a],B=POS[b];return[edge(A,B.x-A.x,B.y-A.y),edge(B,A.x-B.x,A.y-B.y)]}
+function render(){
+  let h='';
+  // ligações
+  const links=[[1,2],[2,3],[1,3]];
+  links.forEach(([a,b])=>{const[p,q]=seg(a,b);const cut=S.nodes[a].iso||S.nodes[b].iso;
+    h+=`<line x1="${p.x}" y1="${p.y}" x2="${q.x}" y2="${q.y}" style="stroke:${cut?'var(--fail)':'var(--line)'}" stroke-width="2" ${cut?'stroke-dasharray="6 6"':''}/>`;
+    if(cut){const mx=(p.x+q.x)/2,my=(p.y+q.y)/2;h+=`<path d="M${mx-7} ${my-7}L${mx+7} ${my+7}M${mx+7} ${my-7}L${mx-7} ${my+7}" style="stroke:var(--fail)" stroke-width="3"/>`}});
+  NODES.forEach(i=>{const[p,q]=seg('P',i);h+=`<line x1="${p.x}" y1="${p.y}" x2="${q.x}" y2="${q.y}" style="stroke:var(--line)" stroke-width="1.2" stroke-dasharray="2 5"/>`});
+  // TCP
+  S.flashes.forEach(f=>{const[p,q]=seg(f.a,f.b);const o=Math.max(0,1-(S.t-f.t0)/1.2);
+    h+=`<g opacity="${o.toFixed(2)}"><line x1="${p.x}" y1="${p.y}" x2="${q.x}" y2="${q.y}" style="stroke:var(--accent)" stroke-width="4" stroke-dasharray="10 5"/><text class="sv-msg" x="${(p.x+q.x)/2+8}" y="${(p.y+q.y)/2-8}" style="fill:var(--accent)">TCP · PEDIDO</text></g>`});
+  // produtor
+  const P=POS.P;const lr=S.readings[S.readings.length-1];
+  h+=`<rect x="${P.x-P.hw}" y="${P.y-P.hh}" width="${P.hw*2}" height="${P.hh*2}" rx="8" style="fill:var(--soft);stroke:var(--line)"/>
+      <text class="sv-id" x="${P.x-P.hw+12}" y="${P.y-12}" style="font-size:17px">Produtor</text>
+      <text class="sv-muted" x="${P.x-P.hw+12}" y="${P.y+8}">IN → raft04-in-p1</text>
+      <text class="sv-mono" x="${P.x-P.hw+12}" y="${P.y+28}">${lr?lr.sensor+' '+lr.temp:'—'}</text>`;
+  // nós
+  NODES.forEach(id=>{const n=S.nodes[id],p=POS[id],x=p.x-p.hw,y=p.y-p.hh,w=p.hw*2,hh=p.hh*2;
+    const col=!n.alive?'var(--dead)':n.role==='L'?tc(n.term):n.role==='C'?'var(--cand)':'var(--line)';
+    h+=`<rect x="${x}" y="${y}" width="${w}" height="${hh}" rx="10" style="fill:var(--surface);stroke:${col}" stroke-width="${n.role==='L'&&n.alive?3.5:2}"/>`;
+    if(n.iso)h+=`<rect x="${x-7}" y="${y-7}" width="${w+14}" height="${hh+14}" rx="14" style="fill:none;stroke:var(--fail)" stroke-width="2" stroke-dasharray="7 5"/><text class="sv-pill" x="${x}" y="${y-13}" style="fill:var(--fail)">ISOLADO · PARTIÇÃO DE REDE</text>`;
+    h+=`<text class="sv-id" x="${x+14}" y="${y+30}">n${id}</text>`;
+    const lab=n.alive?ROLE[n.role]:'FALHOU';const pw=lab.length*7.4+16;
+    h+=`<rect x="${x+w-pw-12}" y="${y+13}" width="${pw}" height="22" rx="11" style="fill:${n.alive?(n.role==='S'?'var(--soft)':col):'var(--dead)'}"/>
+        <text class="sv-pill" x="${x+w-pw/2-12}" y="${y+28}" text-anchor="middle" style="fill:${n.alive&&n.role==='S'?'var(--muted)':'var(--surface)'}">${lab}</text>`;
+    h+=`<rect x="${x+14}" y="${y+44}" width="10" height="10" rx="2" style="fill:${tc(n.term)}"/>
+        <text class="sv-mono" x="${x+30}" y="${y+53}">termo ${n.term} · votou ${n.voted?'n'+n.voted:'—'}</text>
+        <text class="sv-muted" x="${x+14}" y="${y+72}">líder conhecido: ${n.leader?'n'+n.leader:'nenhum'}</text>`;
+    // barra de prazo
+    let frac=0,txt='';
+    if(n.alive&&n.role==='L'){frac=Math.max(0,Math.min(1,(n.nextHb-S.t)/DELTA));txt='próximo LOTE '+fmt(Math.max(0,n.nextHb-S.t))+' s'}
+    else if(n.alive){frac=Math.max(0,Math.min(1,(n.deadline-S.t)/n.tot));txt='prazo '+fmt(Math.max(0,n.deadline-S.t))+' s'}
+    const bc=n.role==='L'?tc(n.term):n.role==='C'?'var(--cand)':'var(--accent)';
+    h+=`<rect x="${x+14}" y="${y+84}" width="120" height="8" rx="4" style="fill:var(--soft)"/>
+        <rect x="${x+14}" y="${y+84}" width="${(120*frac).toFixed(1)}" height="8" rx="4" style="fill:${bc}"/>
+        <text class="sv-muted" x="${x+142}" y="${y+92}">${txt}</text>`;
+    // registo
+    const show=n.log.slice(-9),off=n.log.length-show.length;
+    show.forEach((e,k)=>{const bx=x+14+k*24,by=y+106;const pend=n.role==='L'&&n.pend.includes(e.seq);
+      h+=`<rect x="${bx}" y="${by}" width="20" height="22" rx="3" style="fill:${tc(e.term)};stroke:var(--ink)" stroke-width="${pend?1.5:0}" ${pend?'stroke-dasharray="3 2"':''} opacity="${pend?0.55:1}"/>
+          <text class="sv-seq" x="${bx+10}" y="${by+15}" text-anchor="middle">${e.seq}</text>`});
+    if(!n.log.length)h+=`<text class="sv-muted" x="${x+14}" y="${y+121}">registo vazio</text>`;
+    h+=`<text class="sv-muted" x="${x+14}" y="${y+150}">${off?'… ':''}${n.log.length} registo(s)${n.role==='L'&&n.pend.length?' · '+n.pend.length+' pendente(s)':''}</text>`;
+    if(!n.alive)h+=`<rect x="${x}" y="${y}" width="${w}" height="${hh}" rx="10" style="fill:var(--bg)" opacity="0.55"/>`;
+  });
+  // mensagens
+  S.msgs.forEach(m=>{const[p,q]=seg(m.from,m.to);let k=(S.t-m.t0)/(m.t1-m.t0);if(m.dropped&&k>0.5)return;
+    const px=p.x+(q.x-p.x)*k,py=p.y+(q.y-p.y)*k;const d=m.data;
+    let c='var(--muted)',lab='';
+    if(m.type==='IN'){c='var(--ink)';lab='IN'}
+    else if(m.type==='LOTE'){c=tc(d.term);lab=`LOTE t${d.term}${d.recs.length?' ['+d.recs.length+']':''}`}
+    else if(m.type==='PEDIDO'){c='var(--cand)';lab=`PEDIDO_VOTO t${d.term}`}
+    else {c=d.ok?'var(--ok)':'var(--fail)';lab=`VOTO t${d.term} ${d.ok?'S':'N'}`}
+    if(m.dropped)c='var(--fail)';
+    h+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${m.type==='IN'?4:6}" style="fill:${c}" opacity="${m.dropped?1-k:1}"/>`;
+    if(m.type!=='IN')h+=`<text class="sv-msg" x="${(px+9).toFixed(1)}" y="${(py-7).toFixed(1)}" opacity="${m.dropped?(1-k*1.6).toFixed(2):1}">${m.dropped?'✕ ':''}${lab}</text>`;
+  });
+  svg.innerHTML=h;
+
+  document.getElementById('clock').textContent='t='+fmt(S.t);
+  const notes=S.sc.notes;let cur=notes[0][1];notes.forEach(([t,s])=>{if(S.t>=t)cur=s});
+  if(S.endFired)cur='Fim do cenário. Carregue em «Continuar» para prosseguir, ou mexa nos nós.';
+  const ne=document.getElementById('note');if(ne.textContent!==cur)ne.textContent=cur;
+
+  renderStats();renderCtl();drawTimeline();
+  if(S.evDirty){renderLog();S.evDirty=false}
+}
+function renderStats(){
+  const maxT=Math.max(...NODES.map(i=>S.nodes[i].term));const l=NODES.find(i=>{const n=S.nodes[i];return n.alive&&!n.iso&&n.role==='L'});
+  const lost=S.readings.filter(r=>r.checked&&!r.accepted.length).length;
+  const dup=S.readings.filter(r=>r.accepted.length>1).length;
+  const two=Object.values(S.termLeaders).filter(s=>s.size>1).length;
+  const rows=[['Termo mais alto',maxT,''],['Líder alcançável',l?`n${l} · termo ${S.nodes[l].term}`:'nenhum',l?'good':'bad'],
+    ['Tempo sem líder',fmt(S.unavail)+' s',''],['Leituras enviadas',S.readings.length,''],
+    ['Perdidas por falta de líder',lost,lost?'bad':''],['Aceites por dois líderes',dup,dup?'bad':''],
+    ['Perdidas por truncagem',S.truncLost.size,S.truncLost.size?'bad':''],['Termos com dois líderes',two,two?'bad':'good']];
+  const html=rows.map(([a,b,c])=>`<dt>${a}</dt><dd class="${c}">${b}</dd>`).join('');
+  const el=document.getElementById('stats');if(el.innerHTML!==html)el.innerHTML=html;
+}
+const CHIP={LIDER:'ok',RECUPERACAO:'ok',RECEBIDO:'',CANDIDATO:'cand',VOTO:'cand',FALHA:'fail',PERDIDA:'fail',TRUNCADO:'fail',ERRO:'fail',DEMISSAO:'fail',ISOLADO:'fail',DUPLA:'fail',TERMO:'acc',NOVO_LIDER:'acc',REPARADO:'acc',ARRANQUE:'acc',IGNORADO:'',IN:'',FIM:'acc'};
+function renderLog(){
+  document.getElementById('log').innerHTML=S.events.map(e=>`<li><span class="t">${fmt(e.t)}</span><span class="n">${e.node==='P'?'prod':e.node?'n'+e.node:'—'}</span><span class="chip ${CHIP[e.type]||''}">${e.type}</span><span class="d">${e.text}</span></li>`).join('');
+}
+const ctl=document.getElementById('nodectl');
+NODES.forEach(id=>{const d=document.createElement('div');d.innerHTML=`<strong>n${id}</strong><button class="btn warn" id="k${id}"></button><button class="btn" id="i${id}"></button>`;ctl.appendChild(d);
+  d.querySelector('#k'+id).onclick=()=>{S.nodes[id].alive?kill(id):restart(id)};
+  d.querySelector('#i'+id).onclick=()=>isolate(id,!S.nodes[id].iso)});
+function renderCtl(){NODES.forEach(id=>{const n=S.nodes[id];const k=document.getElementById('k'+id),i=document.getElementById('i'+id);
+  const kt=n.alive?'Falhar':'Arrancar',it=n.iso?'Reparar rede':'Isolar';if(k.textContent!==kt)k.textContent=kt;if(i.textContent!==it)i.textContent=it})}
+
+const cv=document.getElementById('tl');
+function drawTimeline(){
+  const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=132;if(!W)return;
+  if(cv.width!==Math.round(W*dpr)){cv.width=Math.round(W*dpr);cv.height=H*dpr}
+  const g=cv.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
+  const cs=getComputedStyle(document.documentElement),v=k=>cs.getPropertyValue(k).trim();
+  const left=44,right=W-8,t1=Math.max(WIN,S.t),t0=t1-WIN,X=t=>left+(t-t0)/(t1-t0)*(right-left);
+  const rows=['n1','n2','n3','p1'];g.font='12px '+v('--f-mono');g.textBaseline='middle';
+  rows.forEach((r,i)=>{g.fillStyle=v('--muted');g.fillText(r,6,14+i*26);g.fillStyle=v('--soft');g.fillRect(left,4+i*26,right-left,20)});
+  for(let k=0;k<S.hist.length;k++){const s=S.hist[k],nx=k+1<S.hist.length?S.hist[k+1].t:S.t;if(nx<t0)continue;
+    const a=X(Math.max(s.t,t0)),b=X(nx)+0.6;
+    s.n.forEach((q,i)=>{let c=null;
+      if(!q.a)c=v('--dead');else if(q.r==='L')c=v('--t'+(((q.term-1)%6)+1));else if(q.r==='C')c=v('--cand');
+      if(c){g.fillStyle=c;g.fillRect(a,4+i*26,b-a,20)}
+      if(q.iso){g.fillStyle=v('--fail');g.fillRect(a,4+i*26,b-a,4)}});
+    g.fillStyle=s.ok?v('--ok'):v('--fail');g.fillRect(a,4+3*26+6,b-a,8)}
+  g.fillStyle=v('--muted');g.textBaseline='alphabetic';
+  for(let t=Math.ceil(t0/5)*5;t<=t1;t+=5){const x=X(t);g.fillRect(x,108,1,5);g.fillText(String(t),x-6,126)}
+}
+
+/* ---------- controlos ---------- */
+const playBtn=document.getElementById('play');
+function setPlaying(p){playing=p;playBtn.textContent=p?'Pausar':(S&&S.endFired?'Continuar':'Retomar')}
+playBtn.onclick=()=>{if(S.endFired){S.sc={...S.sc,end:Infinity};S.endFired=false}setPlaying(!playing)};
+document.getElementById('reset').onclick=()=>{start(S.sc.id)};
+document.getElementById('send').onclick=()=>emitReading();
+document.getElementById('speed').onchange=e=>{speed=+e.target.value};
+document.getElementById('auto').onchange=e=>{S.auto=e.target.checked;S.nextAuto=S.t+0.2};
+document.getElementById('rand').onchange=e=>{S.randomized=e.target.checked};
+const nav=document.getElementById('scen');
+SCEN.forEach(sc=>{const b=document.createElement('button');b.textContent=sc.name;b.dataset.id=sc.id;b.onclick=()=>start(sc.id);nav.appendChild(b)});
+function start(id){const sc=SCEN.find(s=>s.id===id)||SCEN[0];newState(sc);
+  [...nav.children].forEach(b=>b.setAttribute('aria-pressed',b.dataset.id===sc.id?'true':'false'));
+  setPlaying(true);try{if(location.hash.slice(1)!==sc.id)history.replaceState(null,'','#'+sc.id)}catch(e){}}
+window.addEventListener('hashchange',()=>{const id=location.hash.slice(1);if(SCEN.some(s=>s.id===id)&&id!==S.sc.id)start(id)});
+start(location.hash.slice(1)||'fig1');
+
+let last=performance.now();
+function frame(now){const real=Math.min(0.1,(now-last)/1000);last=now;
+  if(playing){let rem=real*speed;while(rem>1e-9&&playing){const d=Math.min(0.02,rem);step(d);rem-=d}}
+  render();requestAnimationFrame(frame)}
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body></html>

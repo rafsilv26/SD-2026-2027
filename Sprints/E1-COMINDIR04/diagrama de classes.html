@@ -1,0 +1,291 @@
+<!doctype html><html lang="pt"><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style>
+<title>Classes da COMINDIR04</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: escritores à esquerda, líder ao centro, réplica e verificadores à direita; classes comuns numa faixa em baixo; setas = mensagens entre processos, explicadas na tabela */
+:root{
+  --bg:#eef1f6; --paper:#ffffff; --ink:#16213a; --muted:#5a6580; --line:#c3cad8; --grid:#e3e8f0;
+  --in:#2c58cc; --reg:#7b4bd1; --causal:#0d8573; --tcp:#6b7489; --file:#b8730a; --halo:#eef1f6;
+  --in-soft:#e1e8fb; --causal-soft:#d9f1ec; --file-soft:#f8ecd6; --reg-soft:#ece4fa;
+  --f-display:"Familjen Grotesk","Avenir Next","Segoe UI",system-ui,sans-serif;
+  --f-body:"Source Sans 3","Segoe UI",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e1320; --paper:#151c2b; --ink:#e4e9f3; --muted:#97a2b9; --line:#36425c; --grid:#1d2537;
+  --in:#7fa2ff; --reg:#b48cff; --causal:#3fc9b3; --tcp:#9aa3b8; --file:#f0b04c; --halo:#0e1320;
+  --in-soft:#1c2850; --causal-soft:#123a35; --file-soft:#3b2c12; --reg-soft:#2a1f45; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1320; --paper:#151c2b; --ink:#e4e9f3; --muted:#97a2b9; --line:#36425c; --grid:#1d2537;
+  --in:#7fa2ff; --reg:#b48cff; --causal:#3fc9b3; --tcp:#9aa3b8; --file:#f0b04c; --halo:#0e1320;
+  --in-soft:#1c2850; --causal-soft:#123a35; --file-soft:#3b2c12; --reg-soft:#2a1f45; color-scheme:dark}
+
+body{background:var(--bg);color:var(--ink);font:15px/1.45 var(--f-body)}
+.wrap{max-width:1240px;margin:0 auto;padding-block:28px 48px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  display:grid;gap:20px}
+header{display:grid;gap:6px}
+.eyebrow{font:600 12px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{font:700 clamp(26px,4vw,36px)/1.1 var(--f-display);margin:0;text-wrap:balance;letter-spacing:-.01em}
+.lede{margin:0;color:var(--muted);max-width:72ch}
+.keys{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--muted);align-items:center}
+.keys span{display:inline-flex;gap:6px;align-items:center}
+
+.diagram{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:var(--bg)}
+.canvas{position:relative;min-width:1120px;padding:20px;display:grid;
+  grid-template-columns:minmax(270px,1fr) 130px minmax(290px,1.1fr) 130px minmax(270px,1fr);
+  grid-template-areas:"left . mid . right" "common common common common common";row-gap:36px}
+.col{display:flex;flex-direction:column;gap:28px;min-width:0}
+.col.left{grid-area:left;justify-content:space-between}
+.col.mid{grid-area:mid;justify-content:flex-start;padding-top:36px}
+.col.right{grid-area:right;justify-content:space-between}
+.proj{border:1.5px dashed var(--line);border-radius:12px;padding:10px;display:grid;gap:10px;background:var(--bg)}
+.proj > .pn{font:600 12px var(--f-mono);color:var(--muted);letter-spacing:.03em}
+.common{grid-area:common}
+.common .boxes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;align-items:start}
+
+.cls{background:var(--paper);border:1.5px solid var(--ink);border-radius:4px;font-size:13px;min-width:0;position:relative;z-index:1}
+.cls > div{padding:7px 10px;border-top:1px solid var(--line)}
+.cls > .hd{border-top:0;text-align:center;padding:8px 10px 7px}
+.st{display:block;font:12px var(--f-mono);color:var(--muted)}
+.nm{font:700 15px var(--f-mono)}
+.hd .tags{display:flex;justify-content:center;gap:6px;margin-top:5px;flex-wrap:wrap}
+.pill{font:600 11px var(--f-mono);padding:1px 7px;border-radius:999px;white-space:nowrap}
+.p-new{background:var(--causal-soft);color:var(--causal)}
+.p-chg{background:var(--in-soft);color:var(--in)}
+.p-same{background:var(--grid);color:var(--muted)}
+.p-proj{background:var(--grid);color:var(--ink);font-weight:400}
+.role{font-size:13.5px;line-height:1.4;background:var(--grid)}
+.role b{font-weight:600}
+.mem{font:12.5px/1.6 var(--f-mono);overflow-wrap:anywhere}
+.mem .n{color:var(--causal);font-weight:600}
+.mem .c{color:var(--muted);font-style:normal}
+.mem .rm{color:var(--muted);text-decoration:line-through}
+.cls.focus{border-color:var(--causal);box-shadow:0 0 0 3px var(--causal-soft)}
+
+svg#wires{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2;overflow:visible}
+.wire{fill:none;stroke-width:2.2;stroke-linejoin:round}
+.badge circle{stroke:var(--paper);stroke-width:2}
+.badge text{font:700 12px var(--f-mono);fill:var(--paper);text-anchor:middle;dominant-baseline:central}
+.wlbl{font:600 11.5px var(--f-mono);paint-order:stroke;stroke:var(--halo);stroke-width:5px;stroke-linejoin:round}
+
+.panel{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:18px 20px;display:grid;gap:12px;min-width:0}
+.panel h2{font:700 20px/1.2 var(--f-display);margin:0}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:760px;font-size:14px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--grid);vertical-align:top}
+th{font:600 12px var(--f-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+td code{font:12.5px var(--f-mono)}
+.num{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;color:var(--paper);font:700 12px var(--f-mono)}
+.note{font-size:13px;color:var(--muted);margin:0}
+</style></head><body>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Sistemas Distribuídos · Ficha COMINDIR04 · Diagrama de classes</div>
+    <h1>Classes e papéis na COMINDIR04</h1>
+    <p class="lede">Quatro projetos no pacote <code>rep04</code>. O líder deixa de publicar um <code>REG</code> por registo e passa a publicar, a cada Δ = 5000 ms, um <code>LOTE</code> que é ao mesmo tempo heartbeat e envio em lote. Réplicas, processador e produtor acompanham cada partição com um <code>HeartbeatMonitor</code>. Cada caixa indica o papel da classe, o que mudou em relação à COMINDIR03 e os membros que a ficha exige.</p>
+    <div class="keys">
+      <span><span class="pill p-new">nova</span> classe nova</span>
+      <span><span class="pill p-chg">alterada</span> estendida a partir da COMINDIR03</span>
+      <span><span class="pill p-same">inalterada</span> copiada sem mudanças</span>
+      <span><span class="mem"><span class="n">membro</span></span> acrescentado nesta ficha</span>
+      <span><span class="mem"><span class="rm">membro</span></span> retirado nesta ficha</span>
+    </div>
+  </header>
+
+  <div class="diagram">
+    <div class="canvas" id="canvas">
+      <svg id="wires" aria-hidden="true">
+        <defs>
+          <marker id="m-in" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--in)"/></marker>
+          <marker id="m-reg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--reg)"/></marker>
+          <marker id="m-causal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--causal)"/></marker>
+          <marker id="m-tcp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--tcp)"/></marker>
+          <marker id="m-file" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--file)"/></marker>
+        </defs>
+      </svg>
+
+      <div class="col left">
+        <section class="proj">
+          <div class="pn">rep04-produtor</div>
+          <div class="cls" id="c-producer">
+            <div class="hd"><span class="st">«escritor externo · monitor»</span><span class="nm">Producer</span><div class="tags"><span class="pill p-chg">alterada</span></div></div>
+            <div class="role">Injeta as leituras dos sensores sem carimbos causais. Passa a <b>acompanhar os líderes</b> pelos cabeçalhos dos <code>LOTE</code> e avisa quando envia para um líder suspeito.</div>
+            <div class="mem">− N: int<br>− pubsub: IpfsPubSub<br><span class="n">− monitores: HeartbeatMonitor[N]</span></div>
+            <div class="mem">~ enviar(sensor, temp) <span class="c">L = 0, V = 0</span><br>&nbsp;&nbsp;<span class="n">se monitor[k] SUSPEITO → AVISO</span><br>&nbsp;&nbsp;<span class="c">e envia na mesma</span><br><span class="n">~ onLote(k, msg)</span> <span class="c">só o cabeçalho</span><br>&nbsp;&nbsp;<span class="n">monitor[k].onHeartbeat(inc, hb)</span><br><span class="n">~ verificar()</span> <span class="c">check() a cada VERIFICACAO_MS</span><br>~ rajada(n, ms)</div>
+            <div class="mem"><span class="n">monitor-produtor.txt</span></div>
+          </div>
+        </section>
+
+        <section class="proj">
+          <div class="pn">rep04-processador</div>
+          <div class="cls" id="c-alarm">
+            <div class="hd"><span class="st">«observador-escritor · monitor»</span><span class="nm">AlarmProcessor</span><div class="tags"><span class="pill p-chg">alterada</span></div></div>
+            <div class="role">Lê uma partição e escreve noutra, criando as dependências causais. Passa a ler os registos <b>de dentro de cada <code>LOTE</code></b> e a vigiar o líder de destino do alarme.</div>
+            <div class="mem">− Lp: long<br>− Vp: VectorClock<br>− vistos: Set&lt;k#seq&gt;<br><span class="n">− monitores: HeartbeatMonitor[N]</span></div>
+            <div class="mem">+ main(N, [api]) <span class="c">uma thread por partição</span><br><span class="n">~ onLote(k, msg)</span> <span class="c">Batch.decode</span><br>&nbsp;&nbsp;<span class="n">onHeartbeat(inc, hb)</span><br>&nbsp;&nbsp;<span class="n">onReg(k, rec) por registo</span><br>~ onReg(k, rec) <span class="c">synchronized: Lp, Vp ← max</span><br>~ publicarAlarme(rec) <span class="c">temp ≥ 28,0 · Vp.copy()</span><br>&nbsp;&nbsp;<span class="n">se monitor[j] SUSPEITO → AVISO</span><br><span class="n">~ verificar()</span> <span class="c">check() a cada VERIFICACAO_MS</span></div>
+            <div class="mem"><span class="n">monitor-processador.txt</span></div>
+          </div>
+        </section>
+      </div>
+
+      <div class="col mid">
+        <section class="proj">
+          <div class="pn">rep04-lider</div>
+          <div class="cls" id="c-leader">
+            <div class="hd"><span class="st">«gerador de eventos · emissor de heartbeat»</span><span class="nm">PartitionLeader</span><div class="tags"><span class="pill p-chg">alterada</span></div></div>
+            <div class="role">Dono da partição k. Atribui <code>seq</code>, L e V à receção do <code>IN</code> e <b>publica os registos em lote a cada Δ</b>. Os heartbeats não são eventos: não alteram L nem V.</div>
+            <div class="mem">− k: int<br>− seq: long<br>− L: long<br>− V: VectorClock<br>− file: RecordFile<br><span class="n">− inc: long</span> <span class="c">incarnação</span><br><span class="n">− hb: long</span><br><span class="n">− pendentes: List&lt;SensorRecord&gt;</span><br><span class="n">− agenda: ScheduledExecutorService</span></div>
+            <div class="mem">~ onIn(msg) <span class="c">secção sincronizada única:</span><br>&nbsp;&nbsp;L = max(L, Lmsg) + 1<br>&nbsp;&nbsp;V.merge(Vmsg); V.tick(k)<br>&nbsp;&nbsp;seq++; assert V[k] == seq<br>&nbsp;&nbsp;file.append(rec)<br>&nbsp;&nbsp;<span class="n">pendentes.add(rec)</span><br><span class="rm">~ publicarReg(rec)</span><br><span class="n">~ enviarLote()</span> <span class="c">mesmo monitor:</span><br>&nbsp;&nbsp;<span class="n">troca pendentes, lê ultimoSeq, hb++</span><br>&nbsp;&nbsp;<span class="c">fora da secção:</span><br>&nbsp;&nbsp;<span class="n">Batch.encode() → topicData(k)</span><br>&nbsp;&nbsp;<span class="n">hb-p&lt;k&gt;.txt</span><br>~ arranque(): L, V ← file.last()<br>&nbsp;&nbsp;<span class="n">inc = currentTimeMillis(); hb = 0</span><br>&nbsp;&nbsp;<span class="n">scheduleAtFixedRate(enviarLote,</span><br>&nbsp;&nbsp;<span class="n">&nbsp;&nbsp;0, PERIODO_HB_MS)</span><br>~ servirRecuperacao() <span class="c">TCP, inalterado</span></div>
+            <div class="mem">EVENTO: seq=… L=… V=…<br><span class="n">HEARTBEAT: hb=… n=… ultimoSeq=…</span></div>
+          </div>
+        </section>
+      </div>
+
+      <div class="col right">
+        <section class="proj" style="flex:1;align-content:space-between">
+          <div class="pn">rep04-replica</div>
+          <div class="cls" id="c-replica">
+            <div class="hd"><span class="st">«consumidor passivo · monitor»</span><span class="nm">Replica</span><div class="tags"><span class="pill p-chg">alterada</span></div></div>
+            <div class="role">Aplica os registos de cada <code>LOTE</code> pela regra da COMINDIR02 e <b>recupera por TCP</b> o que falta face a <code>ultimoSeq</code>. Suspeitar só é assinalado; não muda a aplicação.</div>
+            <div class="mem">− partições: {k, …}<br><span class="n">− monitores: Map&lt;k, HeartbeatMonitor&gt;</span></div>
+            <div class="mem"><span class="n">~ onLote(k, msg)</span><br>&nbsp;&nbsp;<span class="n">onHeartbeat(inc, hb) · RECEBIDO</span><br>&nbsp;&nbsp;<span class="n">aplica registos por ordem</span><br>&nbsp;&nbsp;<span class="n">se último &lt; ultimoSeq → recuperar</span><br>~ onReg(k, rec)<br>~ recuperar(k) <span class="c">PEDIDO … FIM</span><br><span class="n">~ verificar()</span> <span class="c">check() a cada VERIFICACAO_MS</span></div>
+            <div class="mem"><span class="n">monitor-replica&lt;r&gt;.txt</span></div>
+          </div>
+          <div class="cls" id="c-check">
+            <div class="hd"><span class="st">«verificador a posteriori»</span><span class="nm">CausalCheck</span><div class="tags"><span class="pill p-same">inalterada</span></div></div>
+            <div class="role">Confirma que <b>V[k] = seq se mantém</b> apesar dos heartbeats.</div>
+            <div class="mem">+ main(N, pasta)<br>~ verificaVkIgualSeq()<br>~ classificaPares() <span class="c">→ · ← · ∥</span><br>~ verificaCondicaoRelogio()<br>~ escreveVistaLamport()</div>
+          </div>
+          <div class="cls focus" id="c-hbcheck">
+            <div class="hd"><span class="st">«verificador a posteriori»</span><span class="nm">HeartbeatCheck</span><div class="tags"><span class="pill p-new">nova</span></div></div>
+            <div class="role">Lê <code>hb-p*.txt</code>, <code>lider-p*.txt</code> e <code>monitor-*.txt</code> e produz a <b>evidência do detetor e do lote</b> (CA3).</div>
+            <div class="mem"><span class="n">+ main(N, pasta, [falhas.txt])</span><br><span class="n">~ estatisticasLotes()</span> <span class="c">por k e inc: nº, % vazios,</span><br>&nbsp;&nbsp;<span class="c">registos/lote, intervalo entre hb</span><br><span class="n">~ classificaSuspeitas()</span> <span class="c">falha real ·</span><br>&nbsp;&nbsp;<span class="c">falsa suspeita (RETOMA, mesmo inc)</span><br><span class="n">~ temposDetecao(falhas.txt)</span><br><span class="n">~ latenciaLote()</span> <span class="c">RECEBIDO − instante</span><br><span class="n">~ contaHbPerdidoRecuperacao()</span><br><span class="n">~ bytesPorRegisto()</span> <span class="c">LOTE vs REG</span></div>
+          </div>
+        </section>
+      </div>
+
+      <section class="proj common">
+        <div class="pn">Classes comuns, copiadas entre projetos</div>
+        <div class="boxes">
+          <div class="cls focus" id="c-batch">
+            <div class="hd"><span class="st">«mensagem»</span><span class="nm">Batch</span><div class="tags"><span class="pill p-new">nova</span><span class="pill p-proj">nos 4 projetos</span></div></div>
+            <div class="role">Um <code>LOTE</code>: heartbeat com 0 ou mais registos. Vazio é um heartbeat puro.</div>
+            <div class="mem"><span class="n">− address: String</span><br><span class="n">− port: int</span><br><span class="n">− inc: long</span><br><span class="n">− hb: long</span><br><span class="n">− lastSeq: long</span><br><span class="n">− records: List&lt;SensorRecord&gt;</span></div>
+            <div class="mem"><span class="n">+ encode(): String</span><br>&nbsp;&nbsp;<span class="c">LOTE;end;porto;inc;hb;ultimoSeq;n</span><br>&nbsp;&nbsp;<span class="c">+ n linhas toLine()</span><br><span class="n">+ decode(msg, n): Batch</span> <span class="c">static</span><br>&nbsp;&nbsp;<span class="c">valida nº de linhas = n do cabeçalho</span></div>
+          </div>
+          <div class="cls focus" id="c-hbmon">
+            <div class="hd"><span class="st">«detetor de falhas»</span><span class="nm">HeartbeatMonitor</span><div class="tags"><span class="pill p-new">nova</span><span class="pill p-proj">nos 4 projetos</span></div></div>
+            <div class="role">Um por partição acompanhada. Suspeita após <code>TIMEOUT</code> = 3Δ sem heartbeats, medido com <code>nanoTime()</code> local.</div>
+            <div class="mem"><span class="n">enum State { DESCONHECIDO, ATIVO, SUSPEITO }</span><br><span class="n">− partition: int</span><br><span class="n">− timeoutNanos: long</span><br><span class="n">− log: Consumer&lt;String&gt;</span><br><span class="n">− state: State</span><br><span class="n">− lastNanos: long</span><br><span class="n">− inc: long = −1</span> · <span class="n">hb: long = 0</span></div>
+            <div class="mem"><span class="n">+ HeartbeatMonitor(partition,</span><br>&nbsp;&nbsp;<span class="n">periodMs, factor, log)</span><br><span class="n">+ onHeartbeat(inc, hb)</span> <span class="c">synchronized</span><br>&nbsp;&nbsp;<span class="c">REINICIO · HB_PERDIDO · RETOMA</span><br><span class="n">+ check()</span> <span class="c">synchronized · SUSPEITA</span><br><span class="n">+ state(): State</span></div>
+          </div>
+          <div class="cls" id="c-wire">
+            <div class="hd"><span class="st">«protocolo»</span><span class="nm">Wire</span><div class="tags"><span class="pill p-chg">alterada</span></div></div>
+            <div class="role">Formata e interpreta as mensagens e os nomes dos tópicos, agora com prefixo <code>rep04</code>.</div>
+            <div class="mem">+ LIMIAR_ALARME = 28.0<br><span class="n">+ PERIODO_HB_MS</span> <span class="c">rep04.periodo, 5000</span><br><span class="n">+ FATOR_TIMEOUT</span> <span class="c">rep04.fator, 3</span><br><span class="n">+ VERIFICACAO_MS = 1000</span></div>
+            <div class="mem">+ in(sensor, temp, L, V)<br><span class="rm">+ reg(…, L, V)</span><br>+ topicIn(k) · topicData(k)</div>
+          </div>
+          <div class="cls" id="c-vc">
+            <div class="hd"><span class="st">«carimbo»</span><span class="nm">VectorClock</span><div class="tags"><span class="pill p-same">inalterada</span><span class="pill p-proj">nos 4 projetos</span></div></div>
+            <div class="role">Representa e compara o conhecimento causal. Não é sincronizada: quem a usa protege-a.</div>
+            <div class="mem">− v: long[N]<br>enum Order { BEFORE, AFTER, EQUAL, CONCURRENT }</div>
+            <div class="mem">+ merge(o) · tick(k) · get(k)<br>+ copy() · compare(o): Order<br>+ toString() · parse(s, n)</div>
+          </div>
+          <div class="cls" id="c-rec">
+            <div class="hd"><span class="st">«registo»</span><span class="nm">SensorRecord</span><div class="tags"><span class="pill p-same">inalterada</span></div></div>
+            <div class="role">Uma leitura numerada com os dois carimbos. A sua linha é também o corpo do <code>LOTE</code>.</div>
+            <div class="mem">seq · sensor · temperatura · instante<br>lamport: long<br>vector: VectorClock</div>
+            <div class="mem">+ toLine() <span class="c">seq;sensor;temp;instante;L;V</span><br>+ fromLine(s)</div>
+          </div>
+          <div class="cls" id="c-part">
+            <div class="hd"><span class="st">«encaminhamento»</span><span class="nm">Partitioner</span><div class="tags"><span class="pill p-same">inalterada</span></div></div>
+            <div class="role">Decide a partição de um sensor. É a mesma função para leituras e alarmes.</div>
+            <div class="mem">− n: int</div>
+            <div class="mem">+ of(sensorId): int<br>&nbsp;&nbsp;<span class="c">floorMod(sensorId.hashCode(), n)</span><br>+ count(): int</div>
+          </div>
+          <div class="cls" id="c-file">
+            <div class="hd"><span class="st">«persistência»</span><span class="nm">RecordFile</span><div class="tags"><span class="pill p-same">inalterada</span><span class="pill p-proj">líder, réplica</span></div></div>
+            <div class="role">Ficheiro de registos. Permite ao líder retomar L, V e <code>seq</code> depois de um reinício.</div>
+            <div class="mem">+ append(rec)<br>+ last(): SensorRecord <span class="c">ou null</span></div>
+          </div>
+          <div class="cls" id="c-ipfs">
+            <div class="hd"><span class="st">«transporte»</span><span class="nm">IpfsPubSub</span><div class="tags"><span class="pill p-same">inalterada</span></div></div>
+            <div class="role">Acesso ao PubSub do IPFS. Não sabe nada de relógios nem de heartbeats.</div>
+            <div class="mem">+ publish(tópico, msg)<br>+ subscribe(tópico, handler)</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <section class="panel">
+    <h2>Mensagens entre processos</h2>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>#</th><th>De → para</th><th>Mensagem</th><th>Canal</th><th>Papel</th></tr></thead>
+        <tbody>
+          <tr><td><span class="num" style="background:var(--in)">1</span></td><td>Producer → PartitionLeader</td><td><code>IN;&lt;sensor&gt;;&lt;temp&gt;;0;0,0,0</code></td><td><code>rep04-in-p&lt;k&gt;</code>, k = of(sensor)</td><td>Sem carimbos. Perde-se sem vestígio se o líder estiver em baixo</td></tr>
+          <tr><td><span class="num" style="background:var(--reg)">2</span></td><td>PartitionLeader → AlarmProcessor</td><td><code>LOTE;&lt;end&gt;;&lt;porto&gt;;&lt;inc&gt;;&lt;hb&gt;;&lt;ultimoSeq&gt;;&lt;n&gt;</code> + n linhas</td><td><code>rep04-p&lt;k&gt;</code>, todas as partições</td><td>Heartbeat e conhecimento causal dos registos do lote</td></tr>
+          <tr><td><span class="num" style="background:var(--causal)">3</span></td><td>AlarmProcessor → PartitionLeader</td><td><code>IN;ALARM-&lt;sensor&gt;;&lt;temp&gt;;&lt;Lp&gt;;&lt;Vp&gt;</code></td><td><code>rep04-in-p&lt;j&gt;</code>, j = of("ALARM-" + sensor)</td><td><b>Cria a dependência entre partições</b>; AVISO se p&lt;j&gt; suspeito</td></tr>
+          <tr><td><span class="num" style="background:var(--reg)">4</span></td><td>PartitionLeader → Replica</td><td><code>LOTE</code>, como em 2</td><td><code>rep04-p&lt;k&gt;</code>, réplicas que guardam k</td><td>Heartbeat, registos a aplicar e <code>ultimoSeq</code> para detetar falta do último registo</td></tr>
+          <tr><td><span class="num" style="background:var(--reg)">5</span></td><td>PartitionLeader → Producer</td><td><code>LOTE</code>, só o cabeçalho é interpretado</td><td><code>rep04-p&lt;k&gt;</code>, todas as partições</td><td>Apenas heartbeat: alimenta o monitor do produtor</td></tr>
+          <tr><td><span class="num" style="background:var(--tcp)">6</span></td><td>Replica → PartitionLeader</td><td><code>PEDIDO</code>, linhas de registo, <code>FIM</code></td><td>TCP para o endereço e porto do cabeçalho do <code>LOTE</code></td><td>Recupera lacunas e registos até <code>ultimoSeq</code></td></tr>
+          <tr><td><span class="num" style="background:var(--file)">7</span></td><td>PartitionLeader ⇢ CausalCheck</td><td><code>seq;sensor;temperatura;instante;L;V</code></td><td><code>lider-p&lt;k&gt;.txt</code></td><td>Confirma V[k] = seq: os heartbeats não são eventos</td></tr>
+          <tr><td><span class="num" style="background:var(--file)">8</span></td><td>PartitionLeader e participantes ⇢ HeartbeatCheck</td><td><code>inc;hb;instante;ultimoSeq;n;bytes</code> · <code>instante;evento;p&lt;k&gt;;detalhe</code></td><td><code>hb-p&lt;k&gt;.txt</code>, <code>lider-p&lt;k&gt;.txt</code>, <code>monitor-&lt;id&gt;.txt</code>, <code>falhas.txt</code></td><td>Regularidade dos heartbeats, latência de lote, tempo de deteção, falhas reais e falsas suspeitas</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">As associações estáticas (por exemplo, PartitionLeader usa Batch e RecordFile, e os participantes usam HeartbeatMonitor) estão indicadas pelos tipos dos atributos. Os nomes de métodos que a ficha não fixa (enviar, onIn, onLote, verificar, os métodos de HeartbeatCheck…) são indicativos; os nomes das classes, das constantes e os membros de HeartbeatMonitor, Batch e Wire seguem a ficha. Os ficheiros <code>monitor-&lt;id&gt;.txt</code> são escritos pelas réplicas, pelo processador e pelo produtor, mas, para não sobrecarregar o diagrama, só a seta 8 a partir do líder está desenhada.</p>
+  </section>
+</div>
+
+<script>
+(function(){
+const NS="http://www.w3.org/2000/svg";
+const canvas=document.getElementById("canvas"), svg=document.getElementById("wires");
+/* from, side, frac → to, side, frac; g = posição do troço vertical no corredor, medida a partir da origem */
+const W=[
+  {n:1,a:"c-producer",as:"r",af:.45,b:"c-leader",bs:"l",bf:.06,g:.45,k:"in",lbl:"IN"},
+  {n:2,a:"c-leader",as:"l",af:.5,b:"c-alarm",bs:"r",bf:.3,g:.75,k:"reg",lbl:"LOTE"},
+  {n:3,a:"c-alarm",as:"r",af:.62,b:"c-leader",bs:"l",bf:.8,g:.75,k:"causal",lbl:"ALARME"},
+  {n:4,a:"c-leader",as:"r",af:.08,b:"c-replica",bs:"l",bf:.2,g:.5,k:"reg",lbl:"LOTE"},
+  {n:5,a:"c-leader",as:"l",af:.24,b:"c-producer",bs:"r",bf:.78,g:.15,k:"reg",lbl:"LOTE"},
+  {n:6,a:"c-replica",as:"l",af:.75,b:"c-leader",bs:"r",bf:.3,g:.3,k:"tcp",lbl:"TCP"},
+  {n:7,a:"c-leader",as:"r",af:.82,b:"c-check",bs:"l",bf:.4,g:.3,k:"file",lbl:"ficheiros",dash:true},
+  {n:8,a:"c-leader",as:"r",af:.94,b:"c-hbcheck",bs:"l",bf:.3,g:.45,k:"file",lbl:"ficheiros",dash:true}
+];
+const col={in:"var(--in)",reg:"var(--reg)",causal:"var(--causal)",tcp:"var(--tcp)",file:"var(--file)"};
+function pt(id,side,f,base){
+  const r=document.getElementById(id).getBoundingClientRect();
+  return {x:(side==="r"?r.right:r.left)-base.left, y:r.top-base.top+r.height*f};
+}
+function mk(tag,attrs,parent){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);parent.appendChild(e);return e;}
+function draw(){
+  [...svg.querySelectorAll("g.w")].forEach(g=>g.remove());
+  const base=canvas.getBoundingClientRect();
+  W.forEach(w=>{
+    const A=pt(w.a,w.as,w.af,base), B=pt(w.b,w.bs,w.bf,base);
+    const dir=B.x>A.x?1:-1, xm=A.x+(B.x-A.x)*w.g, end=B.x-dir*2;
+    const g=mk("g",{class:"w"},svg);
+    const p=mk("path",{d:`M${A.x},${A.y} H${xm} V${B.y} H${end}`,class:"wire","marker-end":`url(#m-${w.k})`},g);
+    p.style.stroke=col[w.k]; if(w.dash) p.setAttribute("stroke-dasharray","6 5");
+    const by=(A.y+B.y)/2;
+    const bg=mk("g",{class:"badge"},g);
+    const c=mk("circle",{cx:xm,cy:by,r:11},bg); c.style.fill=col[w.k];
+    mk("text",{x:xm,y:by+.5},bg).textContent=w.n;
+    const lx=(xm+end)/2, ly=B.y-7;
+    const t=mk("text",{x:lx,y:ly,class:"wlbl","text-anchor":"middle"},g); t.textContent=w.lbl; t.style.fill=col[w.k];
+  });
+}
+draw();
+if(window.ResizeObserver) new ResizeObserver(draw).observe(canvas);
+if(document.fonts&&document.fonts.ready) document.fonts.ready.then(draw);
+window.addEventListener("resize",draw);
+})();
+</script>
+
+</body></html>
