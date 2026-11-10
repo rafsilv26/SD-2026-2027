@@ -1,0 +1,111 @@
+@startuml E1-COMINDIR05-Falha
+title E1-COMINDIR05 — Falha do líder, eleição e recuperação da divergência
+autonumber
+
+participant "Producer" as Producer
+participant "n2: líder termo t" as OldLeader
+participant "n1: seguidor" as N1
+participant "n3: seguidor/candidato" as N3
+queue "raft04-in-p<k>" as Input
+queue "raft04-p<k>" as Data
+queue "raft04-eleicao-p<k>" as Election
+database "no-p<k>-n2.txt" as OldLog
+database "no-p<k>-n3.txt" as NewLog
+
+Producer -> Input : IN A
+Input -> OldLeader : entrega IN A
+OldLeader -> OldLog : append seq=m;termo=t
+OldLeader -> Data : LOTE termo=t;último seq=m
+Data -> N1 : aplicar seq=m
+Data -> N3 : aplicar seq=m
+
+Producer -> Input : IN B
+Input -> OldLeader : entrega IN B
+OldLeader -> OldLog : append seq=m+1;termo=t\n(pendente, ainda não publicado)
+
+... O líder falha antes de publicar o próximo LOTE ...
+
+note over N1,N3
+  Ausência de heartbeat; prazo aleatório expira.
+  A indisponibilidade é medida da falha até ao primeiro LOTE
+  publicado por um líder de termo superior.
+end note
+
+N3 -> N3 : tick(); termo := t+1;\nvotar em si; persistir
+N3 -> Election : PEDIDO_VOTO;termo=t+1;\nlastSeq=m;lastTerm=t
+Election -> N1 : PEDIDO_VOTO
+N1 -> N1 : comparar log e voto\npersistir voto em n3
+N1 --> Election : VOTO;termo=t+1;n1;n3;S
+Election --> N3 : VOTO recebido
+N3 -> N3 : 2 votos / maioria\npapel := LIDER
+N3 -> NewLog : iniciar sequência em m\ninicializar L e V do último registo
+N3 -> Data : LOTE;termo=t+1;lider=n3;\nultimoSeq=m;ultimoTermo=t
+
+Producer -> Input : IN C durante eleição
+Input -> N1 : sem líder que o aceite
+Input -> N3 : se chegar após eleição,\nreceberá seq=m+1 no termo t+1
+N3 -> NewLog : append seq=m+1;termo=t+1
+
+... antigo n2 reinicia, lendo termo t e log até seq=m+1 ...
+
+Data -> OldLeader : LOTE termo=t+1;seq=m+1
+OldLeader -> OldLeader : onBatch(t+1,n3)\nadotar termo; demitir-se
+OldLeader -> N3 : TCP PEDIDO (início do último bloco local)..m+1
+N3 --> OldLeader : registos do líder + FIM
+OldLeader -> OldLog : comparar pares (seq,termo)\ntruncar do primeiro diferente\nreescrever atomicamente
+OldLeader -> OldLog : aplicar versão do líder
+OldLeader -> OldLeader : TRUNCADO;de=...;\ndescartados=...;termos=...
+
+note over OldLeader,NewLog
+  Registos só são equivalentes se tiverem o mesmo seq e termo.
+  Divergências são substituídas pela cópia do líder atual.
+  Um IN escrito apenas pelo antigo líder mas ainda não publicado
+  pode desaparecer: a tarefa não implementa commit.
+end note
+@enduml
+
+@startuml E1-COMINDIR05-Isolamento
+title E1-COMINDIR05 — Partição de rede e consequência CAP
+autonumber
+
+participant "Produtor" as Producer
+participant "n1: líder termo t\n(minoria isolada)" as MinorLeader
+participant "n2: seguidor" as Majority1
+participant "n3: seguidor" as Majority2
+queue "PubSub / TCP" as Network
+
+Producer -> Network : IN (canal de entrada continua alcançável)
+Network -x MinorLeader : LOTE / eleição / TCP bloqueados\nmarcador isolar-p<k>-n1
+Network -> Majority1 : IN
+Network -> Majority2 : IN
+Majority1 -> Network : candidatos e pedidos de voto
+Network -> Majority2 : PEDIDO_VOTO
+Majority2 --> Network : VOTO
+Network --> Majority1 : VOTO
+Majority1 -> Majority1 : eleito no termo t+1\nmaioria 2/3
+Majority1 -> Network : LOTE termo=t+1
+Network -> Majority2 : LOTE termo=t+1
+
+MinorLeader -> MinorLeader : continua a aceitar IN\nlocalmente no termo t
+note right of MinorLeader
+  Isolamento não o faz saber
+  que perdeu a liderança.
+  Pode criar registos obsoletos.
+end note
+
+... reparar rede / remover marcador ...
+
+Network -> MinorLeader : LOTE termo=t+1
+MinorLeader -> MinorLeader : adotar t+1; demitir-se
+MinorLeader -> Majority1 : recuperação TCP
+Majority1 --> MinorLeader : log de termo superior
+MinorLeader -> MinorLeader : truncar escritas divergentes
+
+note bottom
+  A maioria mantém a capacidade de eleger e escrever.
+  A minoria não elege, mas o antigo líder isolado ainda aceita IN:
+  isto não é um sistema CP rigoroso por não ter confirmação por maioria.
+  Requer-se quorum de append/commit para rejeitar escritas minoritárias,
+  com custo de disponibilidade e latência.
+end note
+@enduml

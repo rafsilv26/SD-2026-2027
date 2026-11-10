@@ -1,0 +1,159 @@
+@startuml E1-COMINDIR05-Arquitetura
+title E1-COMINDIR05 — Componentes, deployment e canais
+left to right direction
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+
+actor "Operador dos ensaios" as Operator
+
+node "Host do produtor" {
+  component "Producer\nraft04-produtor" as Producer
+  database "produtor.txt\ninstante;p<k>;sensor;temperatura" as ProducerLog
+  component "HeartbeatMonitor\npor partição" as ProducerMonitor
+}
+
+cloud "Kubo / IPFS PubSub" as Kubo {
+  queue "raft04-in-p<k>\nIN e alarmes derivados" as InputTopics
+  queue "raft04-p<k>\nLOTE + heartbeat" as DataTopics
+  queue "raft04-eleicao-p<k>\nPEDIDO_VOTO / VOTO" as ElectionTopics
+}
+
+node "Grupo da partição p0\nmaioria = 2 de 3" as Group0 {
+  component "PartitionNode\np0/n1" as P01
+  component "PartitionNode\np0/n2" as P02
+  component "PartitionNode\np0/n3" as P03
+  database "estado-p0-n*.txt\ntermo;votouEm" as State0
+  database "no-p0-n*.txt\nregistos replicados" as Records0
+  artifact "eventos-p0-n*.txt\nhb-p0-n*.txt" as Logs0
+}
+
+node "Grupo da partição p1\nmaioria = 2 de 3" as Group1 {
+  component "PartitionNode\np1/n1" as P11
+  component "PartitionNode\np1/n2" as P12
+  component "PartitionNode\np1/n3" as P13
+  database "estado-p1-n*.txt\ntermo;votouEm" as State1
+  database "no-p1-n*.txt\nregistos replicados" as Records1
+  artifact "eventos-p1-n*.txt\nhb-p1-n*.txt" as Logs1
+}
+
+node "Grupo da partição p2\nmaioria = 2 de 3" as Group2 {
+  component "PartitionNode\np2/n1" as P21
+  component "PartitionNode\np2/n2" as P22
+  component "PartitionNode\np2/n3" as P23
+  database "estado-p2-n*.txt\ntermo;votouEm" as State2
+  database "no-p2-n*.txt\nregistos replicados" as Records2
+  artifact "eventos-p2-n*.txt\nhb-p2-n*.txt" as Logs2
+}
+
+node "Host do processador" {
+  component "AlarmProcessor\nraft04-processador" as Processor
+  component "HeartbeatMonitor\npor partição" as ProcessorMonitor
+  artifact "monitor-processador.txt" as ProcessorLog
+}
+
+node "Host de análise" {
+  component "RaftCheck" as RaftCheck
+  component "CausalCheck" as CausalCheck
+  artifact "Relatório de eleição,\nindisponibilidade, perda,\ntruncagem e divergência" as Report
+}
+
+Producer --> InputTopics : publica IN
+InputTopics --> P01 : subscrição p0\nnão afetada por isolamento
+InputTopics --> P02
+InputTopics --> P03
+InputTopics --> P11 : subscrição p1\nnão afetada por isolamento
+InputTopics --> P12
+InputTopics --> P13
+InputTopics --> P21 : subscrição p2\nnão afetada por isolamento
+InputTopics --> P22
+InputTopics --> P23
+
+P01 <--> ElectionTopics : pedidos e votos p0
+P02 <--> ElectionTopics
+P03 <--> ElectionTopics
+P11 <--> ElectionTopics : pedidos e votos p1
+P12 <--> ElectionTopics
+P13 <--> ElectionTopics
+P21 <--> ElectionTopics : pedidos e votos p2
+P22 <--> ElectionTopics
+P23 <--> ElectionTopics
+
+P01 --> DataTopics : LOTE p0
+P02 --> DataTopics
+P03 --> DataTopics
+P11 --> DataTopics : LOTE p1
+P12 --> DataTopics
+P13 --> DataTopics
+P21 --> DataTopics : LOTE p2
+P22 --> DataTopics
+P23 --> DataTopics
+DataTopics --> Processor : observa líder e registos
+DataTopics --> Producer : atualiza monitor de heartbeat
+Processor --> InputTopics : publica ALARM-*
+
+P01 --> State0
+P02 --> State0
+P03 --> State0
+P01 --> Records0
+P02 --> Records0
+P03 --> Records0
+P01 --> Logs0
+P02 --> Logs0
+P03 --> Logs0
+P11 --> State1
+P12 --> State1
+P13 --> State1
+P11 --> Records1
+P12 --> Records1
+P13 --> Records1
+P11 --> Logs1
+P12 --> Logs1
+P13 --> Logs1
+P21 --> State2
+P22 --> State2
+P23 --> State2
+P21 --> Records2
+P22 --> Records2
+P23 --> Records2
+P21 --> Logs2
+P22 --> Logs2
+P23 --> Logs2
+
+P01 <--> P02 : TCP PEDIDO / registos / FIM
+P02 <--> P03 : TCP recuperação
+P11 <--> P12 : TCP recuperação
+P12 <--> P13 : TCP recuperação
+P21 <--> P22 : TCP recuperação
+P22 <--> P23 : TCP recuperação
+
+Operator ..> P01 : cria/apaga\nisolar-p0-n1
+Operator ..> P11 : termina/rearranca\nprocessos
+Operator ..> RaftCheck : fornece pasta de logs\ne falhas.txt opcional
+Operator ..> CausalCheck : fornece pasta de logs
+Logs0 ..> RaftCheck
+Logs1 ..> RaftCheck
+Logs2 ..> RaftCheck
+ProducerLog ..> RaftCheck
+ProcessorLog ..> RaftCheck
+Records0 ..> RaftCheck
+Records1 ..> RaftCheck
+Records2 ..> RaftCheck
+Records0 ..> CausalCheck
+Records1 ..> CausalCheck
+Records2 ..> CausalCheck
+RaftCheck --> Report
+CausalCheck --> Report
+
+note bottom of ElectionTopics
+  Cada partição de dados tem o seu grupo e termos independentes.
+  Isolar um nó impede-o de publicar/processar os tópicos de dados
+  e eleição e bloqueia TCP; o tópico de entrada continua acessível.
+end note
+
+note bottom of Group1
+  Com 3 nós, tolera a indisponibilidade de 1 para eleger.
+  Dois nós isolados/terminados deixam o grupo sem maioria.
+  Não há commit por maioria: o líder isolado ainda pode aceitar
+  IN localmente, mas os seus registos podem ser descartados.
+end note
+@enduml

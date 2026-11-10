@@ -1,0 +1,90 @@
+@startuml E1-COMINDIR05-Eleicao
+title E1-COMINDIR05 — Eleição inicial ou após suspeita de falha
+autonumber
+
+participant "n1: PartitionNode" as N1
+participant "n2: PartitionNode" as N2
+participant "n3: PartitionNode" as N3
+queue "raft04-eleicao-p<k>" as Election
+queue "raft04-p<k>" as Data
+participant "Producer / Processor" as Clients
+
+note over N1,N3
+  Arranque: termo persistido (por omissão 0), papel SEGUIDOR.
+  Cada nó sorteia prazo independente [ELEICAO_MIN_MS, ELEICAO_MAX_MS].
+  Valores predefinidos: [6000, 12000] ms; verificação a cada 200 ms.
+end note
+
+... O prazo de n2 expira primeiro ...
+
+N2 -> N2 : tick()
+activate N2
+N2 -> N2 : term := term + 1\nvotedFor := n2
+N2 -> N2 : persistir estado atomicamente
+N2 -> N2 : papel := CANDIDATO\nvotes := {n2}
+N2 -> Election : PEDIDO_VOTO;termo=1;n2;lastSeq;lastTerm
+deactivate N2
+
+Election -> N1 : PEDIDO_VOTO
+activate N1
+N1 -> N1 : verificar termo, voto e\natualização do log
+N1 -> N1 : persistir votedFor=n2
+N1 --> Election : VOTO;termo=1;n1;n2;S
+deactivate N1
+Election -> N3 : PEDIDO_VOTO
+activate N3
+N3 -> N3 : verificar termo, voto e\natualização do log
+N3 -> N3 : persistir votedFor=n2
+N3 --> Election : VOTO;termo=1;n3;n2;S
+deactivate N3
+Election -> N2 : respostas de voto
+activate N2
+N2 -> N2 : contar votos únicos
+note right of N2
+  2 de 3 = maioria:
+  n2 + qualquer seguidor.
+  Sem maioria, continua candidato;
+  outro timeout inicia termo superior.
+end note
+N2 -> N2 : papel := LIDER\nleader := n2
+N2 -> N2 : inicializar seq, L e V\na partir do último registo
+N2 -> Data : LOTE;termo=1;lider=n2;hb=1;\nultimoSeq;ultimoTermo;n=0
+deactivate N2
+
+Data -> N1 : LOTE do termo 1
+N1 -> N1 : onBatch(1,n2)\nreconhecer líder e renovar prazo
+Data -> N3 : LOTE do termo 1
+N3 -> N3 : onBatch(1,n2)\nreconhecer líder e renovar prazo
+Data -> Clients : heartbeat observado\ntermo=1;lider=n2;hb=1
+
+loop enquanto n2 é líder
+  Clients -> N2 : IN;sensor;temperatura;L;V
+  N2 -> N2 : dentro do monitor:\ntermIfLeader(); atribuir seq;\ngrava registo; atualiza L/V
+  N2 -> Data : LOTE;termo=1;lider=n2;hb++;\nultimoSeq;ultimoTermo;registos pendentes
+  Data -> N1 : aplicar lote / recuperar lacunas via TCP
+  Data -> N3 : aplicar lote / recuperar lacunas via TCP
+end
+@enduml
+
+@startuml E1-COMINDIR05-Estados
+title E1-COMINDIR05 — Máquina de estados de RaftState
+hide empty description
+
+[*] --> SEGUIDOR : arranque / carregar termo e voto
+SEGUIDOR --> CANDIDATO : prazo expira / incrementar termo,\nauto-voto persistente
+CANDIDATO --> LIDER : maioria de votos\nincluindo o próprio
+CANDIDATO --> SEGUIDOR : LOTE válido do mesmo/maior termo
+CANDIDATO --> SEGUIDOR : observar termo superior\nlimpar voto e persistir
+CANDIDATO --> CANDIDATO : prazo expira sem maioria /\niniciar eleição em termo superior
+SEGUIDOR --> SEGUIDOR : PEDIDO_VOTO concedido /\npersistir voto e renovar prazo
+SEGUIDOR --> SEGUIDOR : LOTE válido /\nrenovar prazo
+SEGUIDOR --> SEGUIDOR : mensagem de termo superior /\nadotar e persistir termo
+LIDER --> SEGUIDOR : LOTE ou VOTO de termo superior /\ndemissão
+LIDER --> LIDER : IN válido / atribuir seq e termo,\npublicar LOTE periódico
+
+note right of LIDER
+  Um líder obsoleto pode continuar a aceitar IN
+  enquanto isolado, até observar termo superior.
+  Não há commit por maioria nesta tarefa.
+end note
+@enduml

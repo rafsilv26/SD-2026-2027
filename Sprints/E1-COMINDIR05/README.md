@@ -6,6 +6,20 @@ Implementação Java 11+ em três projetos independentes: `raft04-no`,
 `RaftState`; a coordenação entre eleição, registos e lotes está comentada em
 `PartitionNode`.
 
+## Diagramas UML
+
+Os ficheiros PlantUML em `uml/` cobrem a arquitetura e deployment, o modelo de
+classes, a máquina de estados, as sequências de eleição/falha/recuperação e as
+evidências usadas para verificar as métricas. Para gerar SVG ou PNG com
+PlantUML instalado:
+
+```bash
+plantuml -tsvg Sprints/E1-COMINDIR05/uml/*.puml
+```
+
+Os diagramas descrevem os mecanismos implementados e assinalam explicitamente
+que não existe confirmação de escrita por maioria (*commit*).
+
 ## Compilar
 
 Executar a partir da raiz do repositório:
