@@ -1,0 +1,215 @@
+@startuml E1-COMINDIR05-Classes
+title E1-COMINDIR05 — Modelo de classes e estado
+skinparam classAttributeIconSize 0
+hide empty members
+
+package "raft04-no" {
+  class PartitionNode {
+    - partition: int
+    - nodeId: int
+    - lastSeq: long
+    - lastTerm: long
+    - lamport: long
+    - hb: long
+    - pending: List<SensorRecord>
+    + main(args)
+    - checkElection()
+    - onElection(message)
+    - onInput(message)
+    - sendBatch()
+    - onBatch(message)
+    - reconcile(host, port, lastSeq, lastTerm)
+    - fetchRange(host, port, from, to)
+  }
+
+  class RaftState {
+    - term: long <<persistente>>
+    - votedFor: int <<persistente>>
+    - role: Role <<volátil>>
+    - leader: int <<volátil>>
+    - votes: Set<int> <<volátil>>
+    - deadline: long <<volátil>>
+    + tick(): long
+    + onVoteRequest(...): Vote
+    + onVote(...): boolean
+    + onBatch(term, leader): boolean
+    + termIfLeader(): long
+  }
+
+  enum Role {
+    SEGUIDOR
+    CANDIDATO
+    LIDER
+  }
+
+  class "RaftState.Vote" as VoteResult {
+    + term: long
+    + granted: boolean
+  }
+
+  class VoteRequest {
+    - term: long
+    - candidate: int
+    - lastSeq: long
+    - lastTerm: long
+    + encode(): String
+    + decode(message): VoteRequest
+  }
+
+  class VoteReply {
+    - term: long
+    - voter: int
+    - candidate: int
+    - granted: boolean
+    + encode(): String
+    + decode(message): VoteReply
+  }
+
+  class Batch {
+    - term: long
+    - leader: int
+    - address: String
+    - port: int
+    - hb: long
+    - lastSeq: long
+    - lastTerm: long
+    - records: List<SensorRecord>
+    + encode(): String
+    + decode(message, N): Batch
+  }
+
+  class SensorRecord {
+    - seq: long
+    - term: long
+    - sensorId: String
+    - temperature: double
+    - timestamp: String
+    - lamport: long
+    - vector: VectorClock
+    + toLine(): String
+    + fromLine(line): SensorRecord
+  }
+
+  class RecordFile {
+    - path: Path
+    + append(record)
+    + readAll(): List<SensorRecord>
+    + last(): SensorRecord
+    + range(from, to): List<SensorRecord>
+    + truncateFrom(firstSeq, replacement): int
+  }
+
+  class VectorClock {
+    - v: long[]
+    + tick(partition)
+    + merge(other)
+    + copy(): VectorClock
+    + compare(other): Order
+  }
+
+  class Wire {
+    {static} + PERIODO_HB_MS: long
+    {static} + ELEICAO_MIN_MS: long
+    {static} + ELEICAO_MAX_MS: long
+    {static} + VERIFICACAO_MS: long
+    {static} + GRUPO: int = 3
+    {static} + topicIn(k): String
+    {static} + topicData(k): String
+    {static} + topicElection(k): String
+    {static} + nodePort(k, i): int
+    {static} + isolated(k, i): boolean
+  }
+
+  class IpfsPubSub {
+    + publish(topic, message)
+    + subscribe(topic, consumer)
+  }
+
+  class RaftCheck {
+    {static} + main(args)
+    - readEvents(folder)
+    - readNodeFiles(folder)
+    - reportFailures(folder, failures)
+    - reportLostReads(folder)
+  }
+
+  class CausalCheck {
+    {static} + main(args)
+    - check(N, folder)
+    - verifica V[k] = seq
+  }
+
+  PartitionNode *-- RaftState : papel/eleição
+  PartitionNode *-- RecordFile : log local
+  PartitionNode *-- IpfsPubSub
+  PartitionNode *-- "0..*" SensorRecord : pendentes
+  PartitionNode ..> Batch : codifica/publica e descodifica
+  PartitionNode ..> VoteRequest : cria / recebe
+  PartitionNode ..> VoteReply : cria / recebe
+  PartitionNode ..> Wire : tópicos, portas, isolamento
+  RaftState --> Role
+  RaftState ..> VoteResult : resposta ao pedido
+  VoteRequest ..> RaftState
+  VoteReply ..> RaftState
+  Batch o-- "0..*" SensorRecord
+  SensorRecord *-- VectorClock
+  RecordFile o-- "0..*" SensorRecord : persistência
+  RaftCheck ..> RecordFile : lê no-*, estado-*, hb-*, eventos-*
+  CausalCheck ..> SensorRecord : valida logs no-*
+}
+
+package "raft04-produtor" {
+  class Producer {
+    + publishReading(sensor, temperature)
+    + publishBurst(n, interval)
+    - onHeartbeat(partition, message)
+  }
+  class ProducerHeartbeatMonitor as ProducerMonitor {
+    + onHeartbeat(term, leader, hb)
+    + check()
+    + state(): State
+  }
+  Producer *-- "1..N" ProducerMonitor
+  Producer ..> Batch : valida LOTE
+  Producer ..> Wire : publica IN; subscreve LOTE
+}
+
+package "raft04-processador" {
+  class AlarmProcessor {
+    - highestTerms: long[N]
+    - seen: Set<partition:seq:term>
+    - lp: long
+    - vp: VectorClock
+    + onMessage(partition, message)
+    - processRecord(partition, record)
+  }
+  class ProcessorHeartbeatMonitor as ProcessorMonitor {
+    + onHeartbeat(term, leader, hb)
+    + check()
+    + state(): State
+  }
+  AlarmProcessor *-- "1..N" ProcessorMonitor
+  AlarmProcessor ..> Batch : ignora termo obsoleto
+  AlarmProcessor ..> Wire : consome LOTE; publica ALARM-*
+}
+
+note right of RaftState
+  Maioria estrita: floor(G/2)+1.
+  Voto aceite se: termo igual, ainda não votou
+  (ou já votou no mesmo candidato) e log do candidato
+  pelo menos tão atualizado por (lastTerm, lastSeq).
+  O termo/voto são persistidos antes da resposta.
+end note
+
+note bottom of SensorRecord
+  Formato persistido:
+  seq;termo;sensor;temperatura;instante;L;V
+  Invariante causal: V[k] = seq.
+end note
+
+note bottom of RecordFile
+  truncateFrom usa ficheiro temporário + ATOMIC_MOVE.
+  Sem commit, esta reconciliação pode descartar
+  registos do antigo líder isolado.
+end note
+@enduml

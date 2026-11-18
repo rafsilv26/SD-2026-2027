@@ -1,0 +1,57 @@
+@startuml E1-COMINDIR05-Medidas
+title E1-COMINDIR05 — Métricas do ensaio e evidências persistidas
+left to right direction
+skinparam packageStyle rectangle
+
+actor "Ensaios 9(a)–9(e)" as Experiments
+component "PartitionNode\nRaftState" as Node
+component "Producer" as Producer
+component "HeartbeatMonitor\nProducer / Processor" as Monitor
+component "AlarmProcessor" as Processor
+component "RaftCheck" as RaftCheck
+component "CausalCheck" as CausalCheck
+
+database "eventos-p<k>-n<i>.txt\nARRANQUE, CANDIDATO,\nVOTO, LIDER, TERMO,\nDEMISSAO, TRUNCADO" as EventFiles
+database "estado-p<k>-n<i>.txt\ntermo;votouEm" as StateFiles
+database "hb-p<k>-n<i>.txt\ntermo;hb;instante;ultimoSeq;\nultimoTermo;n;bytes" as HeartbeatFiles
+database "no-p<k>-n<i>.txt\nseq;termo;sensor;temperatura;\ninstante;L;V" as NodeFiles
+database "produtor.txt\ninstante;p<k>;sensor;temperatura" as ProducerFile
+database "monitor-produtor.txt\nmonitor-processador.txt" as MonitorFiles
+artifact "RaftCheck:\ntermos, candidatos, votos,\nsegurança, duração,\nindisponibilidade, leituras perdidas,\ntruncagem e divergência final" as RaftReport
+artifact "CausalCheck:\nV[k] = seq;\nordem causal/Lamport" as CausalReport
+
+Experiments --> Node : arranque, SIGKILL,\nreinício, isolamento
+Node --> EventFiles : cada transição/evento
+Node --> StateFiles : persistir termo e voto
+Node --> HeartbeatFiles : registar LOTE publicado
+Node --> NodeFiles : append e truncagem
+Producer --> ProducerFile : cada IN enviado
+Producer --> Monitor : recebe termo/líder/hb
+Processor --> Monitor : recebe termo/líder/hb
+Monitor --> MonitorFiles : NOVO_LIDER, HB_PERDIDO,\nSUSPEITO, AVISO
+
+EventFiles --> RaftCheck
+StateFiles --> RaftCheck
+HeartbeatFiles --> RaftCheck
+NodeFiles --> RaftCheck
+ProducerFile --> RaftCheck
+MonitorFiles --> RaftCheck
+NodeFiles --> CausalCheck
+RaftCheck --> RaftReport
+CausalCheck --> CausalReport
+
+note bottom of RaftReport
+  Verificações esperadas:
+  - termos com >1 LIDER = 0;
+  - termos dos nós nunca diminuem;
+  - indisponibilidade medida até primeiro LOTE de termo superior;
+  - registos finais iguais até ao menor último seq.
+  Os valores são medidos, não presumidos pelo diagrama.
+end note
+
+note bottom of NodeFiles
+  Chave de identidade lógica para reconciliação:
+  (seq, termo). CausalCheck também garante
+  V[k] = seq após mudança de líder.
+end note
+@enduml
