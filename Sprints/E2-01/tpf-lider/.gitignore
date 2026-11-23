@@ -1,0 +1,6 @@
+target/
+.idea/
+*.iml
+.env
+config.properties
+master.key
