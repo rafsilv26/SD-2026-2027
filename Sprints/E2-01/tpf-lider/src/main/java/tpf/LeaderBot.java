@@ -20,6 +20,11 @@ public class LeaderBot extends ListenerAdapter {
 
     private static final String ADMIN_ROLE_NAME = "admin-arquivo";
     private static final String ARCHIVE_CHANNEL_NAME = "arquivo";
+    private final LeaderStore store;
+
+    public LeaderBot(LeaderStore store) {
+        this.store = store;
+    }
 
     public static void main(String[] args) throws InterruptedException {
         String token = System.getenv("DISCORD_TOKEN");
@@ -30,9 +35,27 @@ public class LeaderBot extends ListenerAdapter {
             System.exit(1);
         }
 
+        LeaderStore store;
+        try {
+            Wire.validar();
+            store = new LeaderStore();
+        } catch (Exception e) {
+            System.err.println("ERRO ao iniciar armazenamento do líder: " + e.getMessage());
+            System.exit(1);
+            return;
+        }
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                store.close();
+            } catch (Exception ignored) {
+                // O processo já está a terminar.
+            }
+        }));
+
         JDA jda = JDABuilder.createDefault(token)
                 .enableIntents(GatewayIntent.MESSAGE_CONTENT)
-                .addEventListeners(new LeaderBot())
+                .addEventListeners(new LeaderBot(store))
                 .build();
 
         jda.awaitReady();
@@ -95,7 +118,14 @@ public class LeaderBot extends ListenerAdapter {
                     event.reply("Erro: o parâmetro `texto` não pode estar vazio.").setEphemeral(true).queue();
                     return;
                 }
-                event.reply("/registar recebido: texto=\"" + texto + "\" — ainda não implementado").queue();
+                try {
+                    long lsn = store.registar(
+                            event.getUser().getName(), "arquivo", texto);
+                    event.reply("Registo criado com LSN " + lsn).queue();
+                } catch (Exception e) {
+                    event.reply("Erro ao guardar o registo: " + e.getMessage())
+                            .setEphemeral(true).queue();
+                }
             }
 
             case "estado" -> {
@@ -158,7 +188,19 @@ public class LeaderBot extends ListenerAdapter {
                     event.reply("Erro: `intervaloMs` deve ser maior ou igual a 0.").setEphemeral(true).queue();
                     return;
                 }
-                event.reply("/rajada recebido: n=" + n + ", intervaloMs=" + intervaloMs + " — ainda não implementado").queue();
+                try {
+                    for (int i = 0; i < n; i++) {
+                        store.registar("rajada", "arquivo",
+                                "rajada-" + i);
+                        if (intervaloMs > 0 && i + 1 < n) {
+                            Thread.sleep(intervaloMs);
+                        }
+                    }
+                    event.reply("Rajada concluída: " + n + " registos").queue();
+                } catch (Exception e) {
+                    event.reply("Erro ao executar a rajada: " + e.getMessage())
+                            .setEphemeral(true).queue();
+                }
             }
 
             default -> event.reply("Comando desconhecido.").setEphemeral(true).queue();
@@ -173,11 +215,17 @@ public class LeaderBot extends ListenerAdapter {
 
         if (event.isFromGuild() && ARCHIVE_CHANNEL_NAME.equals(event.getChannel().getName())) {
             String conteudo = event.getMessage().getContentDisplay();
-            System.out.println("[#arquivo] Mensagem de " + event.getAuthor().getName() + ": " + conteudo);
-
-            event.getChannel()
-                    .sendMessage("Mensagem detetada em #arquivo (\"" + conteudo + "\") — processamento ainda não implementado.")
-                    .queue();
+            try {
+                long lsn = store.registar(
+                        event.getAuthor().getName(), "arquivo", conteudo);
+                event.getChannel()
+                        .sendMessage("Registo criado com LSN " + lsn)
+                        .queue();
+            } catch (Exception e) {
+                event.getChannel()
+                        .sendMessage("Erro ao guardar o registo: " + e.getMessage())
+                        .queue();
+            }
         }
     }
 
