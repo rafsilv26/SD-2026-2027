@@ -38,6 +38,7 @@ Os diagramas UML do fluxo e das classes estão em:
 
 - `E2-02-Fluxo-Leader.puml`
 - `E2-02-Classes.puml`
+- `Explicacao-E2-02-Registo-Duravel.pdf` — explicação do fluxo e das decisões de implementação.
 
 ### Configuração
 
